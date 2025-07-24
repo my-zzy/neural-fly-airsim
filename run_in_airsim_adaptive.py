@@ -230,7 +230,7 @@ class AirSimAdaptiveController:
     def run_simulation(self, total_time=30.0, trajectory_func=None):
         """Run the adaptive control simulation"""
         if trajectory_func is None:
-            trajectory_func = traj.test1
+            trajectory_func = test1
             
         print(f"Starting simulation for {total_time} seconds...")
         print("Taking off...")

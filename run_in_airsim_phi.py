@@ -34,7 +34,25 @@ def quaternion_to_euler(x, y, z, w):
 
     return roll, pitch, yaw
 
-def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P, dt, t):
+def get_quaternion_from_euler(roll, pitch, yaw):
+    """
+    Convert Euler angles (roll, pitch, yaw) to quaternion (qw, qx, qy, qz)
+    """
+    cy = math.cos(yaw * 0.5)
+    sy = math.sin(yaw * 0.5)
+    cp = math.cos(pitch * 0.5)
+    sp = math.sin(pitch * 0.5)
+    cr = math.cos(roll * 0.5)
+    sr = math.sin(roll * 0.5)
+
+    qw = cr * cp * cy + sr * sp * sy
+    qx = sr * cp * cy - cr * sp * sy
+    qy = cr * sp * cy + sr * cp * sy
+    qz = cr * cp * sy - sr * sp * cy
+
+    return np.array([qw, qx, qy, qz])
+
+def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P, dt, t, client):
     """
     Neural-fly adaptive controller using phi network
     """
@@ -72,7 +90,30 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     s = current_vel - xd_dot + (Lambda.numpy() @ q_tilde)
 
     # phi(x) - neural network feature
-    x = torch.tensor(np.concatenate([current_pos, current_vel]), dtype=torch.float32)
+    # Input: current velocity (3) + quaternion (4) + rotor speeds (4) = 11 total
+    # Get quaternion directly from AirSim client
+    try:
+        state = client.getMultirotorState()
+        orientation = state.kinematics_estimated.orientation
+        # AirSim quaternion format: [qw, qx, qy, qz]
+        quaternion = np.array([orientation.w_val, orientation.x_val, orientation.y_val, orientation.z_val])
+    except Exception as e:
+        print(f"Warning: Could not get quaternion from client: {e}")
+        # Fallback to converting from Euler angles
+        quaternion = get_quaternion_from_euler(current_att[0], current_att[1], current_att[2])
+    
+    # Get rotor speeds from AirSim
+    try:
+        rotor_states = client.getRotorStates()
+        rotor_speeds = [rotor_states.rotors[i]['speed'] for i in range(4)]
+    except Exception as e:
+        print(f"Warning: Could not get rotor speeds: {e}")
+        # Use default/estimated rotor speeds based on hover condition
+        hover_rpm = 3000.0  # Approximate hover RPM
+        rotor_speeds = [hover_rpm, hover_rpm, hover_rpm, hover_rpm]
+    
+    # Construct phi network input: [vx, vy, vz, qw, qx, qy, qz, rotor1, rotor2, rotor3, rotor4]
+    x = torch.tensor(np.concatenate([current_vel, quaternion, rotor_speeds]), dtype=torch.float32)
     with torch.no_grad():
         phi = phi_net(x)  # shape: [3, h] or [h, 3] depending on network architecture
         if phi.dim() == 1:  # If phi is 1D, expand it to [3, h]
@@ -138,7 +179,7 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     return throttle, roll_desired, pitch_desired, yaw_desired, a_hat_new, P_new
 
 class AirSimNeuralFlyController:
-    def __init__(self, phi_net_path="trained_phi.pt"):
+    def __init__(self, phi_net_path="models/neural-fly_dim-a-3_v-q-pwm-epoch-1999.pth"):
         # Connect to AirSim
         self.client = airsim.MultirotorClient()
         self.client.confirmConnection()
@@ -152,9 +193,9 @@ class AirSimNeuralFlyController:
             print(f"Loaded phi network from {phi_net_path}")
             
             # Initialize adaptive parameters based on network architecture
-            # Assume network outputs a feature vector of size h
+            # Input: velocity (3) + quaternion (4) + rotor speeds (4) = 11 total
             with torch.no_grad():
-                dummy_input = torch.zeros(6)  # 3 position + 3 velocity
+                dummy_input = torch.zeros(11)  # velocity + quaternion + rotor speeds
                 dummy_output = self.phi_net(dummy_input)
                 if dummy_output.dim() == 1:
                     h = dummy_output.shape[0] // 3  # Assume output is [3*h]
@@ -172,7 +213,7 @@ class AirSimNeuralFlyController:
             class DummyPhiNet(torch.nn.Module):
                 def __init__(self):
                     super().__init__()
-                    self.fc = torch.nn.Linear(6, 30)
+                    self.fc = torch.nn.Linear(11, 30)  # 11 inputs: vel(3) + quat(4) + rotors(4)
                     
                 def forward(self, x):
                     return self.fc(x).view(3, 10)  # Reshape to [3, 10]
@@ -303,7 +344,7 @@ class AirSimNeuralFlyController:
                 throttle, roll_desired, pitch_desired, yaw_desired, self.a_hat, self.P = neural_fly_controller(
                     self.pos_history, self.vel_history, self.att_history, self.ang_vel_history,
                     self.posd_history, self.attd_history,
-                    self.phi_net, self.a_hat, self.P, self.dt, self.simulation_time
+                    self.phi_net, self.a_hat, self.P, self.dt, self.simulation_time, self.client
                 )
                 
                 # Update desired attitude with computed values
