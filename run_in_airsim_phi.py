@@ -488,8 +488,10 @@ def main():
         import traceback
         traceback.print_exc()
 
-
 def test1(t):
+    return 0.0, 0.0, -t, 0.0
+
+def test2(t):
     """Figure-8 trajectory in X-Y plane at 2 m height"""
     x_desired = 2.0 * math.sin(t * 0.5)  # Slower frequency for smoother trajectory
     y_desired = 2.0 * math.sin(t * 0.5) * math.cos(t * 0.5)

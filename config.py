@@ -8,13 +8,13 @@ device = "cpu"
 # 自适应控制参数 - Conservative tuning for stability
 cx = 3
 cy = 3
-cz = 0.1
+cz = 0.6
 cu = 2
 cv = 2
 cw = 10
 lamx = 0.2
 lamy = 0.2
-lamz = 1
+lamz = 5
 
 lamphi = 20
 lamthe = 20

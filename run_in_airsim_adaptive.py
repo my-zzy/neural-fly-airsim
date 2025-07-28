@@ -4,6 +4,7 @@ import time
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 from config import *
 
 def quaternion_to_euler(x, y, z, w):
@@ -52,7 +53,7 @@ def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
 
     dx_hat, dy_hat, dz_hat, dphi_hat, dtheta_hat, dpsi_hat = dhat
     xphi, xtheta, xpsi = jifen
-    g = -9.8
+    g = 9.8
 
     # Calculate desired velocity derivatives (still need numerical differentiation for desired trajectory)
     xd_dot = (posd[0][-1] - posd[0][-2])/dt if len(posd[0]) >= 2 else 0.0
@@ -72,7 +73,7 @@ def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     dz_hat += dz_hat_dot*dt
     
     # Calculate required thrust (normalized throttle for AirSim)
-    thrust_force = (w_dot - dz_hat + g) * UAV_mass / (math.cos(phi) * math.cos(theta))
+    thrust_force = -(w_dot - dz_hat - g) * UAV_mass / (math.cos(phi) * math.cos(theta))
     # Convert to throttle (0-1 range), where 0.5 is approximately hover
     throttle = max(0.0, min(1.0, (thrust_force / (UAV_mass * 9.81)) * 0.5 + 0.5))
 
@@ -108,7 +109,7 @@ def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     # Limit acceleration commands to prevent extreme attitudes
     max_accel = 5.0  # m/s^2
     accel_x_desired = max(-max_accel, min(max_accel, accel_x_desired))
-    accel_y_desired = max(-max_accel, min(max_accel, accel_y_desired))
+    accel_y_desired = max(-max_accel, min(max_accel, -accel_y_desired))
     
     # Calculate desired roll and pitch based on desired accelerations
     roll_desired = -(accel_y_desired * math.cos(psi) - accel_x_desired * math.sin(psi)) / 9.81
@@ -126,7 +127,7 @@ def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     dhat_new = [dx_hat, dy_hat, dz_hat, dphi_hat, dtheta_hat, dpsi_hat]
     jifen_new = [xphi, xtheta, xpsi]
 
-    print(f"Velocities: u={u:.2f}, v={v:.2f}, w={w:.2f} | Throttle: {throttle:.3f}, Roll: {math.degrees(roll_desired):.1f}°, Pitch: {math.degrees(pitch_desired):.1f}°, Yaw: {math.degrees(yaw_desired):.1f}°")
+    # print(f"Velocities: u={u:.2f}, v={v:.2f}, w={w:.2f} | Throttle: {throttle:.3f}, Roll: {math.degrees(roll_desired):.1f}°, Pitch: {math.degrees(pitch_desired):.1f}°, Yaw: {math.degrees(yaw_desired):.1f}°")
 
     return throttle, roll_desired, pitch_desired, yaw_desired, dhat_new, jifen_new
 
@@ -279,7 +280,7 @@ class AirSimAdaptiveController:
                 self.time_log.append(self.simulation_time)
                 self.position_log.append(current_pos.copy())
                 self.attitude_log.append(current_att.copy())
-                self.control_log.append([thrust_force, roll_desired, pitch_desired, yaw_desired])
+                self.control_log.append([throttle, roll_desired, pitch_desired, yaw_desired])
                 self.desired_pos_log.append(desired_pos.copy())
                 self.desired_att_log.append(desired_att.copy())
                 
@@ -362,9 +363,51 @@ class AirSimAdaptiveController:
         plt.tight_layout()
         plt.show()
         
+        # 3D trajectory plot
+        fig = plt.figure(figsize=(12, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot actual trajectory
+        ax.plot(data['position'][:, 0], data['position'][:, 1], data['position'][:, 2], 
+                'b-', label='Actual Trajectory', linewidth=2)
+        
+        # Plot desired trajectory
+        ax.plot(data['desired_position'][:, 0], data['desired_position'][:, 1], data['desired_position'][:, 2], 
+                'r--', label='Desired Trajectory', linewidth=2)
+        
+        # Mark start and end points
+        ax.scatter(data['position'][0, 0], data['position'][0, 1], data['position'][0, 2], 
+                  color='green', s=100, label='Start', marker='o')
+        ax.scatter(data['position'][-1, 0], data['position'][-1, 1], data['position'][-1, 2], 
+                  color='red', s=100, label='End', marker='s')
+        
+        ax.set_xlabel('X Position (m)')
+        ax.set_ylabel('Y Position (m)')
+        ax.set_zlabel('Z Position (m)')
+        ax.set_title('3D Trajectory Tracking')
+        ax.legend()
+        ax.grid(True)
+        
+        # Set equal aspect ratio for better visualization
+        max_range = np.array([data['position'][:, 0].max() - data['position'][:, 0].min(),
+                             data['position'][:, 1].max() - data['position'][:, 1].min(),
+                             data['position'][:, 2].max() - data['position'][:, 2].min()]).max()
+        
+        # Adjust the aspect ratio
+        mid_x = (data['position'][:, 0].max() + data['position'][:, 0].min()) * 0.5
+        mid_y = (data['position'][:, 1].max() + data['position'][:, 1].min()) * 0.5
+        mid_z = (data['position'][:, 2].max() + data['position'][:, 2].min()) * 0.5
+        
+        ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
+        ax.set_ylim(mid_y - max_range/2, mid_y + max_range/2)
+        ax.set_zlim(mid_z - max_range/2, mid_z + max_range/2)
+        
+        plt.tight_layout()
+        plt.show()
+        
         # Control signals plot
         fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-        control_labels = ['Thrust Force (N)', 'Roll Desired (deg)', 'Pitch Desired (deg)', 'Yaw Desired (deg)']
+        control_labels = ['throttle (%)', 'Roll Desired (deg)', 'Pitch Desired (deg)', 'Yaw Desired (deg)']
         
         for i in range(4):
             row, col = i // 2, i % 2
@@ -380,7 +423,7 @@ class AirSimAdaptiveController:
             axes[row, col].grid(True)
         
         plt.tight_layout()
-        plt.show()
+        # plt.show()
 
 
 def main():
@@ -388,7 +431,7 @@ def main():
     try:
         # Create controller instance
         controller = AirSimAdaptiveController()
-        selected_traj = test1
+        selected_traj = test2
         sim_time = 20.
         
         # Run simulation
@@ -409,7 +452,15 @@ def main():
 
 
 def test1(t):
-    return -0.1, -0.*math.sin(t), -t, 0.0
+    return 0.1*t, -0.0, -5.0-1.0*t, 0.0
+
+def test2(t):
+    """Figure-8 trajectory in X-Y plane at 2 m height"""
+    x_desired = 10.0 * math.sin(t * 0.5)  # Slower frequency for smoother trajectory
+    y_desired = 10.0 * math.sin(t * 0.5) * math.cos(t * 0.5)
+    z_desired = -10.0  # 2 meters altitude (negative in NED frame)??
+    yaw_desired = 0.0  # Keep yaw constant
+    return x_desired, y_desired, z_desired, yaw_desired
 
 if __name__ == "__main__":
     main()
