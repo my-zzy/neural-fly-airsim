@@ -11,10 +11,10 @@ cy = 3
 cz = 0.6
 cu = 2
 cv = 2
-cw = 10
+cw = 5
 lamx = 0.2
 lamy = 0.2
-lamz = 5
+lamz = 10
 
 lamphi = 20
 lamthe = 20

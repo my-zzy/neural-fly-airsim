@@ -16,3 +16,6 @@ nerual-fly基本看懂了
 论文中网络的输入有pwm，但是却用的是姿态推力high-level控制指令，让人困惑
 如何获得pwm值
 doc上面讲如何增加api时给了一个例子，我一看就是我要的api，爽了
+
+7.29
+can fly in the simulation, but has steady state error, which is strange

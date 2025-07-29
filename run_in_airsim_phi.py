@@ -121,6 +121,9 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
         elif phi.shape[0] != 3:  # If first dimension is not 3, transpose
             phi = phi.T
 
+    # FOR TESTING
+    phi = torch.zeros_like(phi)
+
     # Residual force estimate (assume zero for this implementation)
     y = torch.zeros(3)
 
@@ -146,6 +149,7 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     # Convert force commands to AirSim controls
     # Calculate thrust magnitude and desired attitude
     thrust_magnitude = np.linalg.norm(u)
+    # print(u)
     
     # Simple attitude computation for small angles
     # For more accurate control, proper attitude computation should be used
@@ -172,9 +176,9 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     max_thrust = UAV_mass * 9.81 * 2.0
     throttle = max(0.0, min(1.0, thrust_magnitude / max_thrust * 0.5 + 0.5))
 
-    print(f"NeuralFly - Pos: [{current_pos[0]:.2f}, {current_pos[1]:.2f}, {current_pos[2]:.2f}] | "
-          f"Throttle: {throttle:.3f}, Roll: {math.degrees(roll_desired):.1f}°, "
-          f"Pitch: {math.degrees(pitch_desired):.1f}°, Yaw: {math.degrees(yaw_desired):.1f}°")
+    # print(f"NeuralFly - Pos: [{current_pos[0]:.2f}, {current_pos[1]:.2f}, {current_pos[2]:.2f}] | "
+    #       f"Throttle: {throttle:.3f}, Roll: {math.degrees(roll_desired):.1f}°, "
+    #       f"Pitch: {math.degrees(pitch_desired):.1f}°, Yaw: {math.degrees(yaw_desired):.1f}°")
 
     return throttle, roll_desired, pitch_desired, yaw_desired, a_hat_new, P_new
 
@@ -360,7 +364,7 @@ class AirSimNeuralFlyController:
                 self.time_log.append(self.simulation_time)
                 self.position_log.append(current_pos.copy())
                 self.attitude_log.append(current_att.copy())
-                self.control_log.append([thrust_force, roll_desired, pitch_desired, yaw_desired])
+                self.control_log.append([throttle, roll_desired, pitch_desired, yaw_desired])
                 self.desired_pos_log.append(desired_pos.copy())
                 self.desired_att_log.append(desired_att.copy())
                 
@@ -445,7 +449,7 @@ class AirSimNeuralFlyController:
         
         # Control signals plot
         fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-        control_labels = ['Thrust Force (N)', 'Roll Desired (deg)', 'Pitch Desired (deg)', 'Yaw Desired (deg)']
+        control_labels = ['Throttle (%)', 'Roll Desired (deg)', 'Pitch Desired (deg)', 'Yaw Desired (deg)']
         
         for i in range(4):
             row, col = i // 2, i % 2
@@ -470,7 +474,7 @@ def main():
         # Create controller instance
         controller = AirSimNeuralFlyController()
         selected_traj = test1
-        sim_time = 20.
+        sim_time = 5.
         
         # Run simulation
         data = controller.run_simulation(total_time=sim_time, trajectory_func=selected_traj)
@@ -489,13 +493,13 @@ def main():
         traceback.print_exc()
 
 def test1(t):
-    return 0.0, 0.0, -t, 0.0
+    return 0.0, 0.0, -5.0-t, 0.0
 
 def test2(t):
     """Figure-8 trajectory in X-Y plane at 2 m height"""
-    x_desired = 2.0 * math.sin(t * 0.5)  # Slower frequency for smoother trajectory
-    y_desired = 2.0 * math.sin(t * 0.5) * math.cos(t * 0.5)
-    z_desired = -2.0  # 2 meters altitude (negative in NED frame)
+    x_desired = 5.0 * math.sin(t * 0.5)  # Slower frequency for smoother trajectory
+    y_desired = 5.0 * math.sin(t * 0.5) * math.cos(t * 0.5)
+    z_desired = -10.0  # 2 meters altitude (negative in NED frame)
     yaw_desired = 0.0  # Keep yaw constant
     return x_desired, y_desired, z_desired, yaw_desired
 

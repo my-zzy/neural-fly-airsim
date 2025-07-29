@@ -458,7 +458,7 @@ def test2(t):
     """Figure-8 trajectory in X-Y plane at 2 m height"""
     x_desired = 10.0 * math.sin(t * 0.5)  # Slower frequency for smoother trajectory
     y_desired = 10.0 * math.sin(t * 0.5) * math.cos(t * 0.5)
-    z_desired = -10.0  # 2 meters altitude (negative in NED frame)??
+    z_desired = -10.0-2*t  # 2 meters altitude (negative in NED frame)??
     yaw_desired = 0.0  # Keep yaw constant
     return x_desired, y_desired, z_desired, yaw_desired
 

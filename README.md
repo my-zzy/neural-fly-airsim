@@ -18,6 +18,8 @@ This data and code is provided as part of the Science Robotics research article 
 
 Please run `training-and-validation.ipynb`, which demonstrates the Domain Adversarially Invariant Meta Learning (DAIML) algorithm. DAIML is the offline learning process for Neural-Fly. This script trains a wind-invariant representation of the aerodynamic effects on a quadrotor. After training the model, some simple statistics and plots are generated which show the model performance fitting to the training and testing data. 
 
+## Install Airsim Simulator
+
 ## Filenaming scheme
 
 Filenames are structured as
