@@ -6,6 +6,7 @@ import math
 import matplotlib.pyplot as plt
 import torch
 from config import *
+from mlmodel import load_model
 
 def quaternion_to_euler(x, y, z, w):
     """
@@ -79,10 +80,10 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
 
     # Neural-fly control parameters
     lambda_a = 0.1
-    Q = torch.eye(a_hat.shape[0]) * 0.01
-    R = torch.eye(3) * 0.1
-    K = torch.eye(3) * 5.0
-    Lambda = torch.eye(3) * 2.0
+    Q = torch.eye(a_hat.shape[0], dtype=torch.float64) * 0.01
+    R = torch.eye(3, dtype=torch.float64) * 0.1
+    K = torch.eye(3, dtype=torch.float64) * 5.0
+    Lambda = torch.eye(3, dtype=torch.float64) * 2.0
     g_vector = np.array([0.0, 0.0, 9.81])  # gravity in NED frame
     
     # Tracking error
@@ -113,19 +114,25 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
         rotor_speeds = [hover_rpm, hover_rpm, hover_rpm, hover_rpm]
     
     # Construct phi network input: [vx, vy, vz, qw, qx, qy, qz, rotor1, rotor2, rotor3, rotor4]
-    x = torch.tensor(np.concatenate([current_vel, quaternion, rotor_speeds]), dtype=torch.float32)
+    x = torch.tensor(np.concatenate([current_vel, quaternion, rotor_speeds]), dtype=torch.float64)
     with torch.no_grad():
-        phi = phi_net(x)  # shape: [3, h] or [h, 3] depending on network architecture
+        phi = phi_net.phi(x)  # shape: [3, h] or [h, 3] depending on network architecture
+        # print("phi shape:", phi.shape)  # h = 4
+        # print(phi)
         if phi.dim() == 1:  # If phi is 1D, expand it to [3, h]
             phi = phi.unsqueeze(0).repeat(3, 1)
         elif phi.shape[0] != 3:  # If first dimension is not 3, transpose
             phi = phi.T
 
     # FOR TESTING
-    phi = torch.zeros_like(phi)
+    # phi = torch.ones_like(phi)
+    # print("x shape:", x.shape)
+    # print("altered phi shape:", phi.shape)
+    # print("a_hat shape:", a_hat.shape)
 
     # Residual force estimate (assume zero for this implementation)
-    y = torch.zeros(3)
+    y = torch.zeros(3, dtype=torch.float64)
+    y = phi @ a_hat
 
     # Compute force command
     f_nominal = xd_ddot + g_vector  # for m=1
@@ -137,9 +144,9 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     try:
         R_inv = torch.linalg.inv(R)
     except:
-        R_inv = torch.eye(3) * (1.0 / 0.1)  # fallback if R is singular
+        R_inv = torch.eye(3, dtype=torch.float64) * (1.0 / 0.1)  # fallback if R is singular
     
-    a_hat_dot = -lambda_a * a_hat - P_phi_T @ R_inv @ (phi @ a_hat - y) + P_phi_T @ torch.tensor(s, dtype=torch.float32)
+    a_hat_dot = -lambda_a * a_hat - P_phi_T @ R_inv @ (phi @ a_hat - y) + P_phi_T @ torch.tensor(s, dtype=torch.float64)
     a_hat_new = a_hat + a_hat_dot * dt
 
     # Update P matrix
@@ -149,7 +156,9 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     # Convert force commands to AirSim controls
     # Calculate thrust magnitude and desired attitude
     thrust_magnitude = np.linalg.norm(u)
-    # print(u)
+    # print(f"{f_nominal}, {-K.numpy()@s}, {-f_learning}")
+    # print(f"u: {u}, f_nominal: {f_nominal}, s: {s}, f_learning: {f_learning}\n")
+    
     
     # Simple attitude computation for small angles
     # For more accurate control, proper attitude computation should be used
@@ -183,7 +192,7 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     return throttle, roll_desired, pitch_desired, yaw_desired, a_hat_new, P_new
 
 class AirSimNeuralFlyController:
-    def __init__(self, phi_net_path="models/neural-fly_dim-a-3_v-q-pwm-epoch-1999.pth"):
+    def __init__(self, phi_net_path="neural-fly_dim-a-4_v-q-pwm-epoch-199"):
         # Connect to AirSim
         self.client = airsim.MultirotorClient()
         self.client.confirmConnection()
@@ -192,23 +201,26 @@ class AirSimNeuralFlyController:
         
         # Load trained phi network
         try:
-            self.phi_net = torch.load(phi_net_path, map_location='cpu')
-            self.phi_net.eval()
+            self.phi_net = load_model(phi_net_path)
+            # self.phi_net.eval()
             print(f"Loaded phi network from {phi_net_path}")
             
             # Initialize adaptive parameters based on network architecture
             # Input: velocity (3) + quaternion (4) + rotor speeds (4) = 11 total
             with torch.no_grad():
                 dummy_input = torch.zeros(11)  # velocity + quaternion + rotor speeds
-                dummy_output = self.phi_net(dummy_input)
+                dummy_output = self.phi_net.phi(dummy_input)
+                print("dummy_output.shape", dummy_output.shape)
+                print(dummy_output)
                 if dummy_output.dim() == 1:
                     h = dummy_output.shape[0] // 3  # Assume output is [3*h]
                 else:
                     h = dummy_output.shape[-1]  # Assume output is [3, h] or [h, 3]
-                
+                h = 4
+                print(f"Phi network output dimension h: {h}")
             # Initialize adaptive parameters
-            self.a_hat = torch.zeros(h)
-            self.P = torch.eye(h)
+            self.a_hat = torch.zeros(h, dtype=torch.float64)
+            self.P = torch.eye(h, dtype=torch.float64)
             
         except Exception as e:
             print(f"Warning: Could not load phi network from {phi_net_path}: {e}")
@@ -223,8 +235,8 @@ class AirSimNeuralFlyController:
                     return self.fc(x).view(3, 10)  # Reshape to [3, 10]
             
             self.phi_net = DummyPhiNet()
-            self.a_hat = torch.zeros(10)  # 10 features per dimension
-            self.P = torch.eye(10)
+            self.a_hat = torch.zeros(10, dtype=torch.float64)  # 10 features per dimension
+            self.P = torch.eye(10, dtype=torch.float64)
         
         # Controller parameters
         self.dt = 0.01  # control frequency

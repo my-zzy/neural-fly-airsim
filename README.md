@@ -20,6 +20,11 @@ Please run `training-and-validation.ipynb`, which demonstrates the Domain Advers
 
 ## Install Airsim Simulator
 
+### Install Unreal Engine
+register
+download zip
+
+
 ## Filenaming scheme
 
 Filenames are structured as
