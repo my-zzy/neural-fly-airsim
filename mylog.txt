@@ -18,4 +18,7 @@ nerual-fly基本看懂了
 doc上面讲如何增加api时给了一个例子，我一看就是我要的api，爽了
 
 7.29
-can fly in the simulation, but has steady state error, which is strange
+adaptive control can fly in the simulation, but has steady state error, which is strange
+
+7.30
+phi network control can run, but pitch angle is fixed at 30 degree
