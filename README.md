@@ -1,31 +1,59 @@
-# Neural-Fly enables rapid learning for agile flight in strong winds
+# Neural-Fly reproduction
 
-Michael O'Connell[^equal],
-Guanya Shi[^equal],
-Xichen Shi,
-Kamyar Azizzadenesheli,
-Anima Anandkumar,
-Yisong Yue, and
-Soon-Jo Chung[^corresponding]
+Neural-Fly enables rapid learning for agile flight in strong winds https://arxiv.org/abs/2205.06908
 
-[^equal]: equal contribution and alphabetical order
+## Scripts
 
-[^corresponding]: corresponding author - sjchung@caltech.edu
+|Filename|Description|
+|---|---|
+training-and-validation.ipynb|Domain Adversarially Invariant Meta Learning (DAIML) algorithm, the offline learning process for Neural-Fly. This script trains a wind-invariant representation of the aerodynamic effects on a quadrotor. After training the model, some simple statistics and plots are generated which show the model performance fitting to the training and testing data. |
+|run_in_airsim_adaptive.py|Running in airsim using adaptive control|
+|run_in_airsim_phi.py|Running in airsim using Phi network|
 
-This data and code is provided as part of the Science Robotics research article "Neural-Fly enables rapid learning for agile flight in strong winds", published on May 4th, 2022 [here](https://www.science.org/doi/abs/10.1126/scirobotics.abm6597).
+## Get started
 
-## Training and validation script
+Reference: https://microsoft.github.io/AirSim/build_linux/
 
-Please run `training-and-validation.ipynb`, which demonstrates the Domain Adversarially Invariant Meta Learning (DAIML) algorithm. DAIML is the offline learning process for Neural-Fly. This script trains a wind-invariant representation of the aerodynamic effects on a quadrotor. After training the model, some simple statistics and plots are generated which show the model performance fitting to the training and testing data. 
+1. Register with Epic Games and link it with Github. 
 
-## Install Airsim Simulator
+2. Check out 4.27 and download zip (git clone takes too muck time)
 
-### Install Unreal Engine
-register
-download zip
+3. Follow this guide if you use ubuntu 22.04 https://blog.csdn.net/weixin_58660639/article/details/147927822
 
+4. After starting Unreal, choose blocks environment -> advanced options -> convert inplace
 
-## Filenaming scheme
+5. Put settings.json under Documents
+
+```
+{
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "Vehicles": {
+    "Drone1": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true
+    }
+  }
+}
+```
+
+6. Click play
+
+7. Run python code
+
+## Details
+
+### Input and labels
+
+/1000
+
+### Network
+
+3+1
+
+### 
+
+## Dataset filenaming scheme
 
 Filenames are structured as
 
@@ -68,29 +96,3 @@ This will load all of the experiment data as a list of dictionaries. The `i`th e
 | `'trajectory'` | `<TRAJECTORY>` field from filename |
 | `'method'` | `<METHOD>` field from filename |
 | `'condition'` | `<CONDITION>` field from filename |
-
-## Videos
-
-Check out our overview video:
-
-[![Full overview video](https://img.youtube.com/vi/iCFcU3i2xIM/mqdefault.jpg)](https://www.youtube.com/watch?v=iCFcU3i2xIM "Neural-Fly Enables Rapid Learning for Agile Flight in Strong Winds")
-
-60 second overview video created by Caltech's Office of Strategic Communications:
-
-[![60 second overview video](https://img.youtube.com/vi/y3Z5ZJK6FDg/mqdefault.jpg)](https://www.youtube.com/watch?v=y3Z5ZJK6FDg "Neural-Fly Enables Rapid Learning for Agile Flight in Strong Winds")
-
-## Citation
-
-The data and code here are for personal and educational use only and provided without warranty; written permission from the authors is required for further use. Please cite our work as follows.
-
-> @article{
-doi:10.1126/scirobotics.abm6597,
-author = {Michael O’Connell  and Guanya Shi  and Xichen Shi  and Kamyar Azizzadenesheli  and Anima Anandkumar  and Yisong Yue  and Soon-Jo Chung },
-title = {Neural-Fly enables rapid learning for agile flight in strong winds},
-journal = {Science Robotics},
-volume = {7},
-number = {66},
-pages = {eabm6597},
-year = {2022},
-doi = {10.1126/scirobotics.abm6597},
-URL = {<https://www.science.org/doi/abs/10.1126/scirobotics.abm6597>}}
