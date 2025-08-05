@@ -1,4 +1,8 @@
-# Neural-Fly Reproduction
+<h1>Neural-Fly Reproduction</h1>
+
+Zhiyang Zhou 2025.8.5
+
+Original paper:
 
 **Neural-Fly enables rapid learning for agile flight in strong winds** https://arxiv.org/abs/2205.06908
 
@@ -41,7 +45,7 @@ Reference: https://microsoft.github.io/AirSim/build_linux/
 
 7. Run python code
 
-## Details
+## Paper details
 
 ### 1.Input and labels (page 8)
 
@@ -97,12 +101,41 @@ zero-sum max-min game
 
 ### Added baseline -- traditional adaptive control
 
-Actual position go ahead of desired, which is strange.
+*Actual position go ahead of desired, which is strange.*
 
 ![ad-result](doc/sim_result.png)
 
 ### Neural-fly
 
+*still debugging*
+
+![ad-result](doc/phi_result1.png)
+
+## Todo
+
++ check the calculation of desired roll & pitch
++ throttle is too big
++ check the order of quaternions
++ make it work for different trajs
++ add wind......
+
+## Code details
+
+line56: define neural_fly_controller
+
++ line73: calculate velocity and acceleration with one-order euler method
++ line82: control parameters
++ line90: calculate tracking error s
++ line119: use phi network
++ line144-165: controller update
++ line179: calculate desired thrust and angle
+
+line225: class AirSimNeuralFlyController
++ line358: define run_simulation
+
+line515: main loop
+
+line539: desire trajectory
 
 
 ## Dataset filenaming scheme

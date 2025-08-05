@@ -211,7 +211,7 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     # Convert thrust to throttle (normalized 0-1)
     # Assuming hover throttle around 0.5 and max thrust = 2*weight
     # max_thrust = UAV_mass * 9.81 * 2.0
-    max_thrust = UAV_max_thrust * 4
+    max_thrust = UAV_max_thrust * 6
     throttle = max(0.0, min(1.0, thrust_magnitude / max_thrust * 0.5 + 0.5))
 
     # print(f"NeuralFly - Pos: [{current_pos[0]:.2f}, {current_pos[1]:.2f}, {current_pos[2]:.2f}] | "

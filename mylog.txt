@@ -27,3 +27,4 @@ phi network control can run, but pitch angle is fixed at 30 degree
 simulink verify the corretness of controller
 the problem is at the calculation of desired roll & pitch
 another problem: throttle is too big
+another todo: check the order of quaternions
