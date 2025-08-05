@@ -1,6 +1,6 @@
 <h1>Neural-Fly Reproduction</h1>
 
-Zhiyang Zhou 2025.8.5
+Zhiyang Zhou
 
 Original paper:
 
@@ -86,7 +86,12 @@ zero-sum max-min game
 
 ### 4.Control Diagram (page 4)
 
-![diagram](doc/diagram.png)
+<!-- ![diagram](doc/diagram.png) -->
+<div style="text-align: center;">
+  <img src="doc/diagram.png" alt="diagram" style="max-width: 90%; height: auto; border-radius: 0px;">
+</div>
+
+<br>
 
 **controller design**(page 20)
 
