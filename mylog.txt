@@ -22,3 +22,8 @@ adaptive control can fly in the simulation, but has steady state error, which is
 
 7.30
 phi network control can run, but pitch angle is fixed at 30 degree
+
+8.5
+simulink verify the corretness of controller
+the problem is at the calculation of desired roll & pitch
+another problem: throttle is too big

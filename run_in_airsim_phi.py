@@ -89,6 +89,7 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     # Tracking error
     q_tilde = current_pos - xd
     s = current_vel - xd_dot + (Lambda.numpy() @ q_tilde)
+    # s = np.array([0,0,s[2]], dtype=np.float64)
 
     # phi(x) - neural network feature
     # Input: current velocity (3) + quaternion (4) + rotor speeds (4) = 11 total
@@ -116,17 +117,20 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     
     # Construct phi network input: [vx, vy, vz, qw, qx, qy, qz, rotor1, rotor2, rotor3, rotor4]
     x = torch.tensor(np.concatenate([current_vel, quaternion, rotor_speeds]), dtype=torch.float64)
-    print(f"x: {x}")
+    # print(f"x: {x}")
     with torch.no_grad():
         phi = phi_net.phi(x)  # shape: [3, h] or [h, 3] depending on network architecture
         # print("phi shape:", phi.shape)  # h = 4
-        print(f"phi: {phi}")
+        # print(f"phi: {phi}")
         if phi.dim() == 1:  # If phi is 1D, expand it to [3, h]
             phi = phi.unsqueeze(0).repeat(3, 1)
         elif phi.shape[0] != 3:  # If first dimension is not 3, transpose
             phi = phi.T
 
     # FOR TESTING
+    phi = torch.tensor([[0.1,0.2,0.3,1.0],
+                      [0.1,0.2,0.3,1.0],
+                      [0.1,0.2,0.3,1.0]], dtype=torch.float64)
     # phi = torch.ones_like(phi)
     # print("x shape:", x.shape)
     # print("altered phi shape:", phi.shape)
@@ -143,16 +147,17 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
 
     # Update a_hat using adaptive law
     P_phi_T = P @ phi.T
-    print(f"P: {P}, phi.t: {phi.T}")
+    # print(f"P: {P}, phi.t: {phi.T}")
     try:
         R_inv = torch.linalg.inv(R)
     except:
         print("R is singular")
         R_inv = torch.eye(3, dtype=torch.float64) * (1.0 / 0.1)  # fallback if R is singular
     
-    print(f"{-lambda_a * a_hat}, {- P_phi_T @ R_inv @ (phi @ a_hat - y)}, {P_phi_T @ torch.tensor(s, dtype=torch.float64)}")
+    # print(f"{-lambda_a * a_hat}, {- P_phi_T @ R_inv @ (phi @ a_hat - y)}, {P_phi_T @ torch.tensor(s, dtype=torch.float64)}")
     a_hat_dot = -lambda_a * a_hat - P_phi_T @ R_inv @ (phi @ a_hat - y) + P_phi_T @ torch.tensor(s, dtype=torch.float64)
     a_hat_new = a_hat + a_hat_dot * dt
+    print(u)
     # a_hat_new = torch.zeros_like(a_hat_new)
 
     # Update P matrix
@@ -163,9 +168,10 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     # Calculate thrust magnitude and desired attitude
     # print(u)
     # u = u / (UAV_mass * 9.81) * 0.5 + 0.5
+    # u = np.array([u[0], u[1], u[2]])
     thrust_magnitude = np.linalg.norm(u)
-    print(f"{f_nominal}, {-K.numpy()@s}, {-f_learning}")
-    print(f"u: {u}, f_nominal: {f_nominal}, s: {s}, f_learning: {f_learning}\n")
+    # print(f"{f_nominal}, {-K.numpy()@s}, {-f_learning}")
+    # print(f"u: {u}, f_nominal: {f_nominal}, s: {s}, f_learning: {f_learning}\n")
     
     
     # Simple attitude computation for small angles
@@ -175,8 +181,21 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
         u_normalized = u / thrust_magnitude
         
         # Convert to desired attitude (simplified)
-        roll_desired = math.atan2(-u_normalized[1], -u_normalized[2])
-        pitch_desired = math.atan2(u_normalized[0], math.sqrt(u_normalized[1]**2 + u_normalized[2]**2))
+        # roll_desired = math.atan2(-u_normalized[1], -u_normalized[2])
+        # pitch_desired = math.atan2(u_normalized[0], math.sqrt(u_normalized[1]**2 + u_normalized[2]**2))
+        accel_x_desired = u_normalized[0] * 9.81  # Convert to NED frame
+        # !!! a minus here !!!
+        accel_y_desired = -u_normalized[1] * 9.81  # Convert to NED frame
+        psi = attd[2][-1] if len(attd[2]) > 0 else 0.0  # Use last yaw angle from history
+        # Assuming small angles, we can use simple trigonometry
+        # roll = -accel_y / g, pitch = accel_x / g
+        # where g is the gravitational acceleration (9.81 m/s^2)
+        # Note: This is a simplified model, for more accurate control, use full attitude dynamics
+        # Convert desired accelerations to roll and pitch angles
+        # roll_desired = -math.atan2(accel_y_desired, accel_x_desired)
+        # pitch_desired = math.atan2(accel_x_desired, accel_y_desired)
+        roll_desired = -(accel_y_desired * math.cos(psi) - accel_x_desired * math.sin(psi)) / 9.81
+        pitch_desired = (accel_x_desired * math.cos(psi) + accel_y_desired * math.sin(psi)) / 9.81
         # print(math.degrees(roll_desired), math.degrees(pitch_desired))
         yaw_desired = attd[2][-1] if len(attd[2]) > 0 else 0.0
         
@@ -191,13 +210,16 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     
     # Convert thrust to throttle (normalized 0-1)
     # Assuming hover throttle around 0.5 and max thrust = 2*weight
-    max_thrust = UAV_mass * 9.81 * 2.0
+    # max_thrust = UAV_mass * 9.81 * 2.0
+    max_thrust = UAV_max_thrust * 4
     throttle = max(0.0, min(1.0, thrust_magnitude / max_thrust * 0.5 + 0.5))
 
     # print(f"NeuralFly - Pos: [{current_pos[0]:.2f}, {current_pos[1]:.2f}, {current_pos[2]:.2f}] | "
     #       f"Throttle: {throttle:.3f}, Roll: {math.degrees(roll_desired):.1f}°, "
     #       f"Pitch: {math.degrees(pitch_desired):.1f}°, Yaw: {math.degrees(yaw_desired):.1f}°")
-
+    # print(f"s:{s.shape}, u:{u.shape}, a_hat:{a_hat.shape}, P:{P.shape}, phi:{phi.shape}")
+    # print(f"Q: {Q.shape}, R: {R.shape}, Lambda: {Lambda.shape}")
+    
     return throttle, roll_desired, pitch_desired, yaw_desired, a_hat_new, P_new, u.tolist()
 
 class AirSimNeuralFlyController:
@@ -496,7 +518,7 @@ def main():
         # Create controller instance
         controller = AirSimNeuralFlyController()
         selected_traj = test1
-        sim_time = 0.5
+        sim_time = 5.0
         
         # Run simulation
         data = controller.run_simulation(total_time=sim_time, trajectory_func=selected_traj)
