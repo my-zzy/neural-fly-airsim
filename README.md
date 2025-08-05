@@ -1,14 +1,14 @@
-# Neural-Fly reproduction
+# Neural-Fly Reproduction
 
-Neural-Fly enables rapid learning for agile flight in strong winds https://arxiv.org/abs/2205.06908
+**Neural-Fly enables rapid learning for agile flight in strong winds** https://arxiv.org/abs/2205.06908
 
 ## Scripts
 
 |Filename|Description|
 |---|---|
-training-and-validation.ipynb|Domain Adversarially Invariant Meta Learning (DAIML) algorithm, the offline learning process for Neural-Fly. This script trains a wind-invariant representation of the aerodynamic effects on a quadrotor. After training the model, some simple statistics and plots are generated which show the model performance fitting to the training and testing data. |
-|run_in_airsim_adaptive.py|Running in airsim using adaptive control|
-|run_in_airsim_phi.py|Running in airsim using Phi network|
+|`training-and-validation.ipynb`|Domain Adversarially Invariant Meta Learning (DAIML) algorithm, the offline learning process for Neural-Fly. This script trains a wind-invariant representation of the aerodynamic effects on a quadrotor. After training the model, some simple statistics and plots are generated which show the model performance fitting to the training and testing data. |
+|`run_in_airsim_adaptive.py`|Running in airsim using adaptive control|
+|`run_in_airsim_phi.py`|Running in airsim using Phi network|
 
 ## Get started
 
@@ -22,7 +22,7 @@ Reference: https://microsoft.github.io/AirSim/build_linux/
 
 4. After starting Unreal, choose blocks environment -> advanced options -> convert inplace
 
-5. Put settings.json under Documents
+5. Put settings.json under ~/Documents/Airsim
 
 ```
 {
@@ -43,15 +43,67 @@ Reference: https://microsoft.github.io/AirSim/build_linux/
 
 ## Details
 
-### Input and labels
+### 1.Input and labels (page 8)
 
-/1000
+**Inputs** (velocity, attitude quaternion, and motor speed PWM command)
 
-### Network
++ `vx, vy, vz`
++ `quaternion`, not sure wxyz or xyzw
++ rotor speed get from `getRotorStates() / 1000`
 
-3+1
+**Label** (offline calculation of aerodynamic residual force)
 
-### 
++ `residual force` = actual force - nominal force
+
+### 2.Phi Network
+
+**structure**(page 23)
+
+The output channel has 4 dimension(3 + 1bias), and is multiplied by linear coefficients (ax,ay,az which is also R4) to get 3 channels.
+
+In `training-and-validation.ipynb` [block3] the output dimension is 3 which is wrong.
+
+**loss function**(page 18)
+
+zero-sum max-min game
+
+![loss](doc/loss.png)
+
+**training**(page 19)
+
+'(i) The adaptation step (Line 4-6) solves an least squares problem as a function of φ on the adaptation set Ba. (ii) The training step (Line 7) updates the learned representation φ on the training set B, based on the optimal linear coefficient a∗ solved from the adaptation step. (iii) The regularization step (Line 8-9) updates the discriminator h on the training set.'
+
+
+### 3.Dynamics (page 16)
+
+`q` is a 3 dimension vector
+
+![dynam](doc/dynamics.png)
+
+### 4.Control Diagram (page 4)
+
+![diagram](doc/diagram.png)
+
+**controller design**(page 20)
+
+![controller](doc/controller.png)
+
+### 5.Implementation (page 9)
+
+'We implemented our control algorithm and the baseline control methods in the position control loop in Python, and run it on the onboard Linux computer at 50 Hz. The PX4 was set to the offboard flight mode and received thrust and attitude commands from the position control loop.'
+
+
+## Results
+
+### Added baseline -- traditional adaptive control
+
+Actual position go ahead of desired, which is strange.
+
+![ad-result](doc/sim_result.png)
+
+### Neural-fly
+
+
 
 ## Dataset filenaming scheme
 
