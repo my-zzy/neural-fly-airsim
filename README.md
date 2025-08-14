@@ -45,6 +45,10 @@ Reference: https://microsoft.github.io/AirSim/build_linux/
 
 7. Run python code
 
+<div style="text-align: center;">
+  <img src="doc/unreal.png" alt="unreal" style="max-width: 85%; height: auto; border-radius: 0px;">
+</div>
+
 ## Paper details
 
 ### 1.Input and labels (page 8)
@@ -114,14 +118,12 @@ zero-sum max-min game
 
 *still debugging*
 
-![ad-result](doc/phi_result1.png)
+![ad-result](doc/phi_result3.png)
 
 ## Todo
 
 + check the calculation of desired roll & pitch
-+ throttle is too big
 + check the order of quaternions
-+ make it work for different trajs
 + add wind......
 
 ## Code details

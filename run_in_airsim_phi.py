@@ -128,9 +128,9 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
             phi = phi.T
 
     # FOR TESTING
-    phi = torch.tensor([[0.1,0.2,0.3,1.0],
-                      [0.1,0.2,0.3,1.0],
-                      [0.1,0.2,0.3,1.0]], dtype=torch.float64)
+    phi = torch.tensor([[0.1,0.2,-0.3,1.0],
+                      [0.1,0.2,-0.3,1.0],
+                      [0.1,0.2,-0.3,1.0]], dtype=torch.float64)
     # phi = torch.ones_like(phi)
     # print("x shape:", x.shape)
     # print("altered phi shape:", phi.shape)
@@ -170,7 +170,7 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     # u = u / (UAV_mass * 9.81) * 0.5 + 0.5
     # u = np.array([u[0], u[1], u[2]])
     thrust_magnitude = np.linalg.norm(u)
-    # print(f"{f_nominal}, {-K.numpy()@s}, {-f_learning}")
+    # print(f"{f_nominal}, {-K.numpy()@s}, {-f_learning}\n")
     # print(f"u: {u}, f_nominal: {f_nominal}, s: {s}, f_learning: {f_learning}\n")
     
     
@@ -183,20 +183,18 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
         # Convert to desired attitude (simplified)
         # roll_desired = math.atan2(-u_normalized[1], -u_normalized[2])
         # pitch_desired = math.atan2(u_normalized[0], math.sqrt(u_normalized[1]**2 + u_normalized[2]**2))
-        accel_x_desired = u_normalized[0] * 9.81  # Convert to NED frame
+        accel_x_desired = u_normalized[0]  # Convert to NED frame
         # !!! a minus here !!!
-        accel_y_desired = -u_normalized[1] * 9.81  # Convert to NED frame
+        accel_y_desired = -u_normalized[1]  # Convert to NED frame
         psi = attd[2][-1] if len(attd[2]) > 0 else 0.0  # Use last yaw angle from history
         # Assuming small angles, we can use simple trigonometry
-        # roll = -accel_y / g, pitch = accel_x / g
-        # where g is the gravitational acceleration (9.81 m/s^2)
         # Note: This is a simplified model, for more accurate control, use full attitude dynamics
-        # Convert desired accelerations to roll and pitch angles
-        # roll_desired = -math.atan2(accel_y_desired, accel_x_desired)
-        # pitch_desired = math.atan2(accel_x_desired, accel_y_desired)
-        roll_desired = -(accel_y_desired * math.cos(psi) - accel_x_desired * math.sin(psi)) / 9.81
-        pitch_desired = (accel_x_desired * math.cos(psi) + accel_y_desired * math.sin(psi)) / 9.81
+        roll_desired = -(accel_y_desired * math.cos(psi) - accel_x_desired * math.sin(psi))
+        pitch_desired = (accel_x_desired * math.cos(psi) + accel_y_desired * math.sin(psi))
+        # roll_desired = np.arcsin((u[0] * math.sin(psi) + u[1] * math.cos(psi)) / abs(u[2]))
+        # pitch_desired = np.arctan2(u[0] * math.cos(psi) - u[1] * math.sin(psi), abs(u[2]))
         # print(math.degrees(roll_desired), math.degrees(pitch_desired))
+        print()
         yaw_desired = attd[2][-1] if len(attd[2]) > 0 else 0.0
         
         # Limit attitude angles
@@ -211,8 +209,8 @@ def neural_fly_controller(pos, vel, att, ang_vel, posd, attd, phi_net, a_hat, P,
     # Convert thrust to throttle (normalized 0-1)
     # Assuming hover throttle around 0.5 and max thrust = 2*weight
     # max_thrust = UAV_mass * 9.81 * 2.0
-    max_thrust = UAV_max_thrust * 6
-    throttle = max(0.0, min(1.0, thrust_magnitude / max_thrust * 0.5 + 0.5))
+    max_thrust = UAV_max_thrust * 4
+    throttle = max(0.0, min(1.0, -u[2] / max_thrust * 0.5 + 0.5))
 
     # print(f"NeuralFly - Pos: [{current_pos[0]:.2f}, {current_pos[1]:.2f}, {current_pos[2]:.2f}] | "
     #       f"Throttle: {throttle:.3f}, Roll: {math.degrees(roll_desired):.1f}°, "
@@ -517,8 +515,8 @@ def main():
     try:
         # Create controller instance
         controller = AirSimNeuralFlyController()
-        selected_traj = test1
-        sim_time = 5.0
+        selected_traj = test2
+        sim_time = 10.0
         
         # Run simulation
         data = controller.run_simulation(total_time=sim_time, trajectory_func=selected_traj)
@@ -537,13 +535,13 @@ def main():
         traceback.print_exc()
 
 def test1(t):
-    return 0.0, 0.0, -5.0-t, 0.0
+    return 0.0, 0.2*t, -5.0-t, 0.0
 
 def test2(t):
     """Figure-8 trajectory in X-Y plane at 2 m height"""
     x_desired = 5.0 * math.sin(t * 0.5)  # Slower frequency for smoother trajectory
     y_desired = 5.0 * math.sin(t * 0.5) * math.cos(t * 0.5)
-    z_desired = -10.0  # 2 meters altitude (negative in NED frame)
+    z_desired = -10.0-2*t  # 2 meters altitude (negative in NED frame)
     yaw_desired = 0.0  # Keep yaw constant
     return x_desired, y_desired, z_desired, yaw_desired
 
