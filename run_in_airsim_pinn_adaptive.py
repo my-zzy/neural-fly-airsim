@@ -418,7 +418,7 @@ class AirSimAdaptiveController:
                 p_out = self._p_cmd_filt
 
                 self.send_control_to_airsim(thr, r_out, p_out, y_des)
-                desired_att = [r_out, p_out, y_des]
+                desired_att = [r_out, -p_out, y_des]
 
                 # log
                 self.time_log.append(self.simulation_time)
@@ -472,11 +472,18 @@ class AirSimAdaptiveController:
         plt.tight_layout(); plt.show()
 
         # 3D 轨迹
-        fig = plt.figure(figsize=(12,8))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.plot(data['position'][:,0], data['position'][:,1], data['position'][:,2], 'b-', label='Actual', linewidth=2)
-        ax.plot(data['desired_position'][:,0], data['desired_position'][:,1], data['desired_position'][:,2], 'r--', label='Desired', linewidth=2)
-        ax.legend(); ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z'); ax.grid(True); plt.tight_layout(); plt.show()
+        # fig = plt.figure(figsize=(12,8))
+        # ax = fig.add_subplot(111, projection='3d')
+        # ax.plot(data['position'][:,0], data['position'][:,1], data['position'][:,2], 'b-', label='Actual', linewidth=2)
+        # ax.plot(data['desired_position'][:,0], data['desired_position'][:,1], data['desired_position'][:,2], 'r--', label='Desired', linewidth=2)
+        # ax.legend(); ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z'); ax.grid(True); plt.tight_layout(); plt.show()
+
+        # 2D 轨迹 (X-Y)
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(data['position'][:, 0], data['position'][:, 1], 'b-', label='Actual', linewidth=2)
+        ax.plot(data['desired_position'][:, 0], data['desired_position'][:, 1], 'r--', label='Desired', linewidth=2)
+        ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_title('2D Trajectory (X-Y)')
+        ax.legend(); ax.grid(True); plt.tight_layout(); plt.show()
 
         # 控制量
         fig, axes = plt.subplots(2,2, figsize=(12,8))
@@ -485,7 +492,7 @@ class AirSimAdaptiveController:
             r, c = i//2, i%2
             y = data['control'][:,i] if i==0 else np.degrees(data['control'][:,i])
             axes[r,c].plot(data['time'], y, 'g-'); axes[r,c].set_title(labels[i]); axes[r,c].grid(True)
-        plt.tight_layout(); plt.show()
+        # plt.tight_layout(); plt.show()
 
 # ============================================================
 # 轨迹样例
@@ -497,6 +504,7 @@ def test2(t):
     x = 10.0 * math.sin(t * 0.5)
     y = 10.0 * math.sin(t * 0.5) * math.cos(t * 0.5)
     z = -10.0 - 2.0*t
+    z = -5.0
     yaw = 0.0
     return x, y, z, yaw
 
@@ -514,7 +522,7 @@ def parse_args():
     p.add_argument("--num_tasks", type=int, default=6, help="训练时的任务数（要与 ckpt 一致）")
     p.add_argument("--task_id", type=int, default=3, help="使用哪个任务嵌入")
     p.add_argument("--device", type=str, default="cpu")
-    p.add_argument("--alpha", type=float, default=0.0, help="Meta-PINN 残差前馈权重 [0,1]；0 为关闭")
+    p.add_argument("--alpha", type=float, default=1, help="Meta-PINN 残差前馈权重 [0,1]；0 为关闭")
     p.add_argument("--wind", type=float, default=0.0, help="条件向量（如风速），需与训练 cond_dim 对齐")
     p.add_argument("--sim_time", type=float, default=20.0)
     p.add_argument("--dt", type=float, default=0.01)

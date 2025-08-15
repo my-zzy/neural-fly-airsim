@@ -77,18 +77,25 @@ drag_box = 0.5 * UAV_linear_drag_coefficient * torch.tensor([UAV_yz_area, UAV_xz
 
 
 # pd parameters
-kp1 = 0.8
-kd1 = 0.2
-kp2 = 0.8
-kd2 = 0.2
+kp1 = 0.6
+kd1 = 0.6
+
+kp2 = 0.6
+kd2 = 0.6
+
 kp3 = 0.8
 kd3 = 0.4
-kp4 = 50
-kd4 = 20
-kp5 = 20
-kd5 = 15
-kp6 = 60
-kd6 = 30
+
+# kp4 = 50
+# kd4 = 20
+# kp5 = 20
+# kd5 = 15
+# kp6 = 60
+# kd6 = 30
+
+ki1 = 0.1
+ki2 = 0.1
+ki3 = 0.1
 
 
 '''

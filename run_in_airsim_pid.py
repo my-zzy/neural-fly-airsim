@@ -34,7 +34,7 @@ def quaternion_to_euler(x, y, z, w):
 
     return roll, pitch, yaw
 
-def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
+def pid_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     
     x = pos[0][-1]
     y = pos[1][-1]
@@ -51,60 +51,53 @@ def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     zd = posd[2][-1]
     psid = attd[2][-1]  # Only use desired yaw
 
-    dx_hat, dy_hat, dz_hat, dphi_hat, dtheta_hat, dpsi_hat = dhat
+    # PID integral terms (reuse jifen for consistency)
     xphi, xtheta, xpsi = jifen
     g = 9.8
 
-    # Calculate desired velocity derivatives (still need numerical differentiation for desired trajectory)
-    xd_dot = (posd[0][-1] - posd[0][-2])/dt if len(posd[0]) >= 2 else 0.0
-    yd_dot = (posd[1][-1] - posd[1][-2])/dt if len(posd[1]) >= 2 else 0.0
-    zd_dot = (posd[2][-1] - posd[2][-2])/dt if len(posd[2]) >= 2 else 0.0
-
-    xd_dot2 = ((posd[0][-1] - posd[0][-2])/dt - (posd[0][-2] - posd[0][-3])/dt)/dt if len(posd[0]) >= 3 else 0.0
-    yd_dot2 = ((posd[1][-1] - posd[1][-2])/dt - (posd[1][-2] - posd[1][-3])/dt)/dt if len(posd[1]) >= 3 else 0.0
-    zd_dot2 = ((posd[2][-1] - posd[2][-2])/dt - (posd[2][-2] - posd[2][-3])/dt)/dt if len(posd[2]) >= 3 else 0.0
-
-    # Position control - adaptive altitude control
-    ez = z - zd
-    ew = w - zd_dot + cz*ez
-    ez_dot = ew - cz*ez
-    w_dot = -cw*ew - ez + zd_dot2 - cz*ez_dot
-    dz_hat_dot = lamz*ew
-    dz_hat += dz_hat_dot*dt
+    # PID gains from config.py
+    kp_pos = [kp1, kp2, kp3]  # Position gains
+    kd_pos = [kd1, kd2, kd3]  # Velocity gains
+    ki_pos = [ki1, ki2, ki3]  # Integral gains
     
-    # Calculate required thrust (normalized throttle for AirSim)
-    thrust_force = -(w_dot - dz_hat - g) * UAV_mass / (math.cos(phi) * math.cos(theta))
-    # Convert to throttle (0-1 range), where 0.5 is approximately hover
-    throttle = max(0.0, min(1.0, (thrust_force / (UAV_mass * 9.81)) * 0.5 + 0.5))
-
-    # Horizontal position control - compute desired accelerations
+    # Position errors
     ex = x - xd
-    eu = u - xd_dot + cx*ex
-    ex_dot = eu - cx*ex
-    u_dot = -cu*eu - ex + xd_dot2 - cx*ex_dot
-    dx_hat_dot = lamx*eu
-    dx_hat += dx_hat_dot*dt
-    accel_x_desired = u_dot - dx_hat
-
     ey = y - yd
-    ev = v - yd_dot + cy*ey
-    ey_dot = ev - cy*ey
-    v_dot = -cv*ev - ey + yd_dot2 - cy*ey_dot
-    dy_hat_dot = lamy*ev
-    dy_hat += dy_hat_dot*dt
-    accel_y_desired = v_dot - dy_hat
-
-    '''
-    Ux = (u_dot - dx_hat)*m/U1
-    Uy = (v_dot - dy_hat)*m/U1
-    phid_new = math.asin(Ux*math.sin(psi) - Uy*math.cos(psi))
-    thetad_new = math.asin((Ux*math.cos(psi) + Uy*math.sin(psi))/math.cos(phid_new))
+    ez = z - zd
     
-    '''
+    # Velocity errors (direct from AirSim)
+    ev_x = u
+    ev_y = v
+    ev_z = w
+    
+    # Integral terms update
+    xphi += ex * dt  # x integral
+    xtheta += ey * dt  # y integral
+    xpsi += ez * dt  # z integral
+    
+    # Limit integral windup
+    max_integral = 10.0
+    # print warning if exceed limit
+    # if abs(xphi) > max_integral:
+    #     print(f"Warning: x integral term {xphi} exceeds limit {max_integral}")
+    # if abs(xtheta) > max_integral:
+    #     print(f"Warning: y integral term {xtheta} exceeds limit {max_integral}")
+    # if abs(xpsi) > max_integral:
+    #     print(f"Warning: z integral term {xpsi} exceeds limit {max_integral}")
+    # xphi = max(-max_integral, min(max_integral, xphi))
+    # xtheta = max(-max_integral, min(max_integral, xtheta))
+    # xpsi = max(-max_integral, min(max_integral, xpsi))
 
-    # Convert desired accelerations to desired attitude angles
-    # For small angles: roll ≈ (accel_y * cos(yaw) - accel_x * sin(yaw)) / g
-    #                  pitch ≈ (accel_x * cos(yaw) + accel_y * sin(yaw)) / g
+    # PID control for altitude (z-axis)
+    throttle_cmd = kp_pos[2] * (-ez) + kd_pos[2] * (-ev_z) + ki_pos[2] * (-xpsi)
+    # Convert to throttle (0-1 range), where 0.5 is approximately hover
+    throttle = 0.5 - throttle_cmd * 0.1  # Scale factor for throttle
+    throttle = max(0.0, min(1.0, throttle))
+
+    # PID control for horizontal position - compute desired accelerations
+    accel_x_desired = kp_pos[0] * (-ex) + kd_pos[0] * (-ev_x) + ki_pos[0] * (-xphi)
+    accel_y_desired = kp_pos[1] * (-ey) + kd_pos[1] * (-ev_y) + ki_pos[1] * (-xtheta)
+
     
     # Limit acceleration commands to prevent extreme attitudes
     max_accel = 5.0  # m/s^2
@@ -123,15 +116,15 @@ def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     # Use desired yaw from trajectory
     yaw_desired = psid
 
-    # Update disturbance estimates
-    dhat_new = [dx_hat, dy_hat, dz_hat, dphi_hat, dtheta_hat, dpsi_hat]
+    # Return values (keeping dhat structure for compatibility)
+    dhat_new = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # Not used in PID
     jifen_new = [xphi, xtheta, xpsi]
 
     # print(f"Velocities: u={u:.2f}, v={v:.2f}, w={w:.2f} | Throttle: {throttle:.3f}, Roll: {math.degrees(roll_desired):.1f}°, Pitch: {math.degrees(pitch_desired):.1f}°, Yaw: {math.degrees(yaw_desired):.1f}°")
 
     return throttle, roll_desired, pitch_desired, yaw_desired, dhat_new, jifen_new
 
-class AirSimAdaptiveController:
+class AirSimPIDController:
     def __init__(self):
         # Connect to AirSim
         self.client = airsim.MultirotorClient()
@@ -163,7 +156,7 @@ class AirSimAdaptiveController:
         self.desired_pos_log = []
         self.desired_att_log = []
         
-        print("AirSim Adaptive Controller initialized")
+        print("AirSim PID Controller initialized")
         
     def get_state(self):
         """Get current drone state from AirSim"""
@@ -260,8 +253,8 @@ class AirSimAdaptiveController:
             # Only run controller if we have enough history
             if len(self.pos_history[0]) >= 3 and len(self.attd_history[0]) >= 3:
                 
-                # Run adaptive controller
-                throttle, roll_desired, pitch_desired, yaw_desired, self.dhat, self.jifen = adaptive_controller(
+                # Run PID controller
+                throttle, roll_desired, pitch_desired, yaw_desired, self.dhat, self.jifen = pid_controller(
                     self.pos_history, self.vel_history, self.att_history, self.ang_vel_history,
                     self.posd_history, self.attd_history,
                     self.dhat, self.jifen, self.dt, self.simulation_time
@@ -404,7 +397,7 @@ class AirSimAdaptiveController:
         
         plt.tight_layout()
         plt.show()
-                
+        
         # 2D trajectory plot (X-Y)
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.plot(data['position'][:, 0], data['position'][:, 1], 'b-', label='Actual', linewidth=2)
@@ -442,9 +435,9 @@ def main():
     """Main function to run the AirSim adaptive control simulation"""
     try:
         # Create controller instance
-        controller = AirSimAdaptiveController()
+        controller = AirSimPIDController()
         selected_traj = test2
-        sim_time = 20.
+        sim_time = 25
         
         # Run simulation
         data = controller.run_simulation(total_time=sim_time, trajectory_func=selected_traj)
@@ -464,7 +457,14 @@ def main():
 
 
 def test1(t):
-    return 0.1*t, -0.0, -5.0-1.0*t, 0.0
+    if t < 5:
+        return 0, 0, -5-2*t, 0
+    elif t < 10:
+        return -5*(t-5), 0, -5-2*t, 0
+    elif t < 15:
+        return -25, -5*(t-10), -5-2*t, 0
+    else:
+        return -25, -25, -5-2*t, 0
 
 def test2(t):
     """Figure-8 trajectory in X-Y plane at 2 m height"""

@@ -5,6 +5,9 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import torch
+import torch.nn as nn
+import torch.optim as optim
 from config import *
 
 def quaternion_to_euler(x, y, z, w):
@@ -34,7 +37,48 @@ def quaternion_to_euler(x, y, z, w):
 
     return roll, pitch, yaw
 
-def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
+class AdaptiveNeuralNetwork(nn.Module):
+    """
+    Neural network for adaptive control.
+    Only the last layer parameters are updated during flight.
+    """
+    def __init__(self, input_dim=12, hidden_dim=64, output_dim=3):
+        super(AdaptiveNeuralNetwork, self).__init__()
+        self.hidden_layers = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU()
+        )
+        # Only this layer will be updated during flight
+        self.adaptive_layer = nn.Linear(hidden_dim, output_dim)
+        
+        # Freeze hidden layers during flight
+        for param in self.hidden_layers.parameters():
+            param.requires_grad = False
+            
+        # Initialize adaptive layer with small weights
+        nn.init.xavier_uniform_(self.adaptive_layer.weight, gain=0.1)
+        nn.init.zeros_(self.adaptive_layer.bias)
+        
+    def forward(self, x):
+        features = self.hidden_layers(x)
+        adaptive_terms = self.adaptive_layer(features)
+        return adaptive_terms
+    
+    def enable_adaptation(self):
+        """Enable gradient computation for adaptive layer only"""
+        for param in self.adaptive_layer.parameters():
+            param.requires_grad = True
+    
+    def freeze_all(self):
+        """Freeze all parameters"""
+        for param in self.parameters():
+            param.requires_grad = False
+
+def nn_adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t, neural_net=None, optimizer=None):
     
     x = pos[0][-1]
     y = pos[1][-1]
@@ -69,29 +113,83 @@ def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     ew = w - zd_dot + cz*ez
     ez_dot = ew - cz*ez
     w_dot = -cw*ew - ez + zd_dot2 - cz*ez_dot
-    dz_hat_dot = lamz*ew
-    dz_hat += dz_hat_dot*dt
+    
+    # Horizontal position control
+    ex = x - xd
+    eu = u - xd_dot + cx*ex
+    ex_dot = eu - cx*ex
+    u_dot = -cu*eu - ex + xd_dot2 - cx*ex_dot
+
+    ey = y - yd
+    ev = v - yd_dot + cy*ey
+    ey_dot = ev - cy*ey
+    v_dot = -cv*ev - ey + yd_dot2 - cy*ey_dot
+
+    # Neural Network Adaptive Terms
+    if neural_net is not None:
+        # Prepare input features for neural network
+        # State: [pos_error, vel_error, attitude, angular_vel]
+        nn_input = torch.tensor([
+            ex, ey, ez,           # position errors
+            eu, ev, ew,           # velocity errors  
+            phi, theta, psi,      # attitude
+            u, v, w              # velocities
+        ], dtype=torch.float32).unsqueeze(0)  # Add batch dimension
+        
+        # Get adaptive terms from neural network
+        with torch.no_grad():
+            adaptive_terms = neural_net(nn_input).squeeze(0)
+        
+        # Extract adaptive terms for x, y, z
+        dx_hat_nn = adaptive_terms[0].item()
+        dy_hat_nn = adaptive_terms[1].item()
+        dz_hat_nn = adaptive_terms[2].item()
+        
+        # Update neural network using tracking errors
+        if optimizer is not None and len(pos) > 5:  # Update only after enough data
+            neural_net.train()
+            optimizer.zero_grad()
+            
+            # Prediction from network
+            adaptive_pred = neural_net(nn_input)
+            
+            # Target adaptive terms based on tracking errors
+            target_adaptive = torch.tensor([
+                -lamx * eu,  # x-direction adaptive target
+                -lamy * ev,  # y-direction adaptive target  
+                -lamz * ew   # z-direction adaptive target
+            ], dtype=torch.float32).unsqueeze(0)
+            
+            # Compute loss and update only the last layer
+            loss = torch.mse_loss(adaptive_pred, target_adaptive)
+            loss.backward()
+            optimizer.step()
+            
+            neural_net.eval()
+        
+        # Use neural network predictions
+        dx_hat = dx_hat_nn
+        dy_hat = dy_hat_nn
+        dz_hat = dz_hat_nn
+        
+    else:
+        # Fallback to traditional adaptive control
+        dz_hat_dot = lamz*ew
+        dz_hat += dz_hat_dot*dt
+        
+        dx_hat_dot = lamx*eu
+        dx_hat += dx_hat_dot*dt
+        
+        dy_hat_dot = lamy*ev
+        dy_hat += dy_hat_dot*dt
     
     # Calculate required thrust (normalized throttle for AirSim)
     thrust_force = -(w_dot - dz_hat - g) * UAV_mass / (math.cos(phi) * math.cos(theta))
     # Convert to throttle (0-1 range), where 0.5 is approximately hover
     throttle = max(0.0, min(1.0, (thrust_force / (UAV_mass * 9.81)) * 0.5 + 0.5))
 
-    # Horizontal position control - compute desired accelerations
-    ex = x - xd
-    eu = u - xd_dot + cx*ex
-    ex_dot = eu - cx*ex
-    u_dot = -cu*eu - ex + xd_dot2 - cx*ex_dot
-    dx_hat_dot = lamx*eu
-    dx_hat += dx_hat_dot*dt
+    # Compute desired accelerations using the adaptive terms
     accel_x_desired = u_dot - dx_hat
-
-    ey = y - yd
-    ev = v - yd_dot + cy*ey
-    ey_dot = ev - cy*ey
-    v_dot = -cv*ev - ey + yd_dot2 - cy*ey_dot
-    dy_hat_dot = lamy*ev
-    dy_hat += dy_hat_dot*dt
     accel_y_desired = v_dot - dy_hat
 
     '''
@@ -131,8 +229,8 @@ def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
 
     return throttle, roll_desired, pitch_desired, yaw_desired, dhat_new, jifen_new
 
-class AirSimAdaptiveController:
-    def __init__(self):
+class AirSimNeuralAdaptiveController:
+    def __init__(self, use_neural_net=True):
         # Connect to AirSim
         self.client = airsim.MultirotorClient()
         self.client.confirmConnection()
@@ -146,6 +244,21 @@ class AirSimAdaptiveController:
         # Initialize adaptive controller variables
         self.dhat = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # disturbance estimates
         self.jifen = [0.0, 0.0, 0.0]  # integral terms
+        
+        # Neural Network Setup
+        self.use_neural_net = use_neural_net
+        if self.use_neural_net:
+            self.neural_net = AdaptiveNeuralNetwork(input_dim=12, hidden_dim=64, output_dim=3)
+            self.neural_net.enable_adaptation()  # Enable adaptation for last layer only
+            self.neural_net.eval()
+            
+            # Optimizer for only the adaptive layer
+            self.optimizer = optim.Adam(self.neural_net.adaptive_layer.parameters(), lr=0.001)
+            print("Neural Network Adaptive Controller initialized")
+        else:
+            self.neural_net = None
+            self.optimizer = None
+            print("Traditional Adaptive Controller initialized")
         
         # History buffers for position and attitude (controller needs derivatives)
         self.pos_history = [[], [], []]  # x, y, z
@@ -260,11 +373,12 @@ class AirSimAdaptiveController:
             # Only run controller if we have enough history
             if len(self.pos_history[0]) >= 3 and len(self.attd_history[0]) >= 3:
                 
-                # Run adaptive controller
-                throttle, roll_desired, pitch_desired, yaw_desired, self.dhat, self.jifen = adaptive_controller(
+                # Run neural network adaptive controller
+                throttle, roll_desired, pitch_desired, yaw_desired, self.dhat, self.jifen = nn_adaptive_controller(
                     self.pos_history, self.vel_history, self.att_history, self.ang_vel_history,
                     self.posd_history, self.attd_history,
-                    self.dhat, self.jifen, self.dt, self.simulation_time
+                    self.dhat, self.jifen, self.dt, self.simulation_time,
+                    neural_net=self.neural_net, optimizer=self.optimizer
                 )
                 
                 # Update desired attitude with computed values
@@ -441,8 +555,8 @@ class AirSimAdaptiveController:
 def main():
     """Main function to run the AirSim adaptive control simulation"""
     try:
-        # Create controller instance
-        controller = AirSimAdaptiveController()
+        # Create neural network adaptive controller instance
+        controller = AirSimNeuralAdaptiveController(use_neural_net=True)
         selected_traj = test2
         sim_time = 20.
         
