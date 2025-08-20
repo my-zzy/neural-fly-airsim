@@ -588,5 +588,32 @@ def test2(t):
     yaw_desired = 0.0  # Keep yaw constant
     return x_desired, y_desired, z_desired, yaw_desired
 
+# 随机轨迹函数，持续约3分钟
+def test3_random_spline_trajectory():
+    """
+    生成一个持续约60秒的随机轨迹点，并用样条插值生成平滑轨迹。
+    返回一个轨迹查询函数: f(t) -> (x, y, z, yaw)
+    """
+    import numpy as np
+    from scipy.interpolate import CubicSpline
+    np.random.seed(42)  # 保证可复现
+    total_time = 180.0
+    num_points = 80  # 轨迹点数量更多
+    t_points = np.linspace(0, total_time, num_points)
+    # 随机生成轨迹点，范围可调整
+    x_points = np.random.uniform(-15, 15, num_points)
+    y_points = np.random.uniform(-15, 15, num_points)
+    z_points = np.random.uniform(-40, -3, num_points)  # NED坐标，负值，范围更大
+    yaw_points = np.random.uniform(-np.pi, np.pi, num_points)
+    # 用三次样条插值
+    x_spline = CubicSpline(t_points, x_points)
+    y_spline = CubicSpline(t_points, y_points)
+    z_spline = CubicSpline(t_points, z_points)
+    yaw_spline = CubicSpline(t_points, yaw_points)
+    def trajectory_func(t):
+        t = np.clip(t, 0, total_time)
+        return float(x_spline(t)), float(y_spline(t)), float(z_spline(t)), 0
+    return trajectory_func
+
 if __name__ == "__main__":
     main()

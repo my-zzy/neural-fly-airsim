@@ -7,9 +7,9 @@ import airsim
 import matplotlib.pyplot as plt
 
 # ========= 采集参数 =========
-OUT_DIR = Path("logs_manual_wind_profiles_rc")
+OUT_DIR = Path("logs_manual_wind_profiles")
 DT = 0.02                   # 50 Hz
-SIM_TIME_PER_PROFILE = None # None=回车开始/按键结束；否则固定秒数自动结束
+SIM_TIME_PER_PROFILE = 180 # None=回车开始/按键结束；否则固定秒数自动结束
 MASS_KG = 1.0
 G = 9.81
 HOVER_THROTTLE = 0.44
@@ -163,8 +163,6 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     with open(OUT_DIR/"profiles_meta.json","w") as f: json.dump(PROFILES, f, indent=2)
 
-    client = airsim.MultirotorClient(); client.confirmConnection()
-
     # 3D 轨迹
     P_all, seg_idx = [], []
     csv_paths = []
@@ -173,6 +171,18 @@ def main():
           "提示：UE 窗口要置前获得焦点；settings.json 里确认 RC.RemoteControlID 指向你的手柄。\n")
 
     for k, prof in enumerate(PROFILES, 1):
+        # 每次采集前重启AirSim并回到原点
+        print(f"\n>>> 正在重启AirSim并复位无人机到原点...（请确保AirSim支持reset API）")
+        client = airsim.MultirotorClient(); client.confirmConnection()
+        client.reset()
+        time.sleep(2)  # 等待复位
+        client.enableApiControl(True)
+        client.armDisarm(True)
+        # 回到原点
+        client.moveToPositionAsync(0, 0, 0, 2).join()
+        time.sleep(1)
+        # 只释放API控制，允许手柄控制（不解锁，避免飞控锁定）
+        client.enableApiControl(False)
         tag, kind = prof["tag"], prof["kind"]
         d = np.array(prof["dir"], dtype=float); d = d/(np.linalg.norm(d)+1e-12)
         mag = float(prof["mag"]) if kind=="const" else float(prof["mag_mean"])
@@ -189,7 +199,7 @@ def main():
             duration = SIM_TIME_PER_PROFILE
 
         # ==== 等待起飞 ====
-        wait_until_flying(client, max_wait_s=60.0)
+        #wait_until_flying(client, max_wait_s=60.0)
 
         # CSV
         csv_path = OUT_DIR / f"manual_{tag}.csv"; csv_paths.append(csv_path)

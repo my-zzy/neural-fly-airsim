@@ -7,7 +7,7 @@ DEFAULT_OPTIONS = {
     'batch_size': 512,
 
     # === K-shot ===
-    'K_shot': 200,
+    'K_shot': 2500,
     'kshot_score': 'fn',          # 'fn' or 'vnorm'
     'eval_top_frac': 1.0,         # eval: pure top-K
 

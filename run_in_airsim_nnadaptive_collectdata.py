@@ -5,6 +5,9 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import torch
+import torch.nn as nn
+import torch.optim as optim
 from config import *
 
 def quaternion_to_euler(x, y, z, w):
@@ -34,7 +37,48 @@ def quaternion_to_euler(x, y, z, w):
 
     return roll, pitch, yaw
 
-def pid_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
+class AdaptiveNeuralNetwork(nn.Module):
+    """
+    Neural network for adaptive control.
+    Only the last layer parameters are updated during flight.
+    """
+    def __init__(self, input_dim=12, hidden_dim=64, output_dim=3):
+        super(AdaptiveNeuralNetwork, self).__init__()
+        self.hidden_layers = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU()
+        )
+        # Only this layer will be updated during flight
+        self.adaptive_layer = nn.Linear(hidden_dim, output_dim)
+        
+        # Freeze hidden layers during flight
+        for param in self.hidden_layers.parameters():
+            param.requires_grad = False
+            
+        # Initialize adaptive layer with small weights
+        nn.init.xavier_uniform_(self.adaptive_layer.weight, gain=0.1)
+        nn.init.zeros_(self.adaptive_layer.bias)
+        
+    def forward(self, x):
+        features = self.hidden_layers(x)
+        adaptive_terms = self.adaptive_layer(features)
+        return adaptive_terms
+    
+    def enable_adaptation(self):
+        """Enable gradient computation for adaptive layer only"""
+        for param in self.adaptive_layer.parameters():
+            param.requires_grad = True
+    
+    def freeze_all(self):
+        """Freeze all parameters"""
+        for param in self.parameters():
+            param.requires_grad = False
+
+def nn_adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t, neural_net=None, optimizer=None):
     
     x = pos[0][-1]
     y = pos[1][-1]
@@ -51,53 +95,114 @@ def pid_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     zd = posd[2][-1]
     psid = attd[2][-1]  # Only use desired yaw
 
-    # PID integral terms (reuse jifen for consistency)
+    dx_hat, dy_hat, dz_hat, dphi_hat, dtheta_hat, dpsi_hat = dhat
     xphi, xtheta, xpsi = jifen
     g = 9.8
 
-    # PID gains from config.py
-    kp_pos = [kp1, kp2, kp3]  # Position gains
-    kd_pos = [kd1, kd2, kd3]  # Velocity gains
-    ki_pos = [ki1, ki2, ki3]  # Integral gains
-    
-    # Position errors
-    ex = x - xd
-    ey = y - yd
+    # Calculate desired velocity derivatives (still need numerical differentiation for desired trajectory)
+    xd_dot = (posd[0][-1] - posd[0][-2])/dt if len(posd[0]) >= 2 else 0.0
+    yd_dot = (posd[1][-1] - posd[1][-2])/dt if len(posd[1]) >= 2 else 0.0
+    zd_dot = (posd[2][-1] - posd[2][-2])/dt if len(posd[2]) >= 2 else 0.0
+
+    xd_dot2 = ((posd[0][-1] - posd[0][-2])/dt - (posd[0][-2] - posd[0][-3])/dt)/dt if len(posd[0]) >= 3 else 0.0
+    yd_dot2 = ((posd[1][-1] - posd[1][-2])/dt - (posd[1][-2] - posd[1][-3])/dt)/dt if len(posd[1]) >= 3 else 0.0
+    zd_dot2 = ((posd[2][-1] - posd[2][-2])/dt - (posd[2][-2] - posd[2][-3])/dt)/dt if len(posd[2]) >= 3 else 0.0
+
+    # Position control - adaptive altitude control
     ez = z - zd
+    ew = w - zd_dot + cz*ez
+    ez_dot = ew - cz*ez
+    w_dot = -cw*ew - ez + zd_dot2 - cz*ez_dot
     
-    # Velocity errors (direct from AirSim)
-    ev_x = u
-    ev_y = v
-    ev_z = w
-    
-    # Integral terms update
-    xphi += ex * dt  # x integral
-    xtheta += ey * dt  # y integral
-    xpsi += ez * dt  # z integral
-    
-    # Limit integral windup
-    max_integral = 10.0
-    # print warning if exceed limit
-    # if abs(xphi) > max_integral:
-    #     print(f"Warning: x integral term {xphi} exceeds limit {max_integral}")
-    # if abs(xtheta) > max_integral:
-    #     print(f"Warning: y integral term {xtheta} exceeds limit {max_integral}")
-    # if abs(xpsi) > max_integral:
-    #     print(f"Warning: z integral term {xpsi} exceeds limit {max_integral}")
-    # xphi = max(-max_integral, min(max_integral, xphi))
-    # xtheta = max(-max_integral, min(max_integral, xtheta))
-    # xpsi = max(-max_integral, min(max_integral, xpsi))
+    # Horizontal position control
+    ex = x - xd
+    eu = u - xd_dot + cx*ex
+    ex_dot = eu - cx*ex
+    u_dot = -cu*eu - ex + xd_dot2 - cx*ex_dot
 
-    # PID control for altitude (z-axis)
-    throttle_cmd = kp_pos[2] * (-ez) + kd_pos[2] * (-ev_z) + ki_pos[2] * (-xpsi)
+    ey = y - yd
+    ev = v - yd_dot + cy*ey
+    ey_dot = ev - cy*ey
+    v_dot = -cv*ev - ey + yd_dot2 - cy*ey_dot
+
+    # Neural Network Adaptive Terms
+    if neural_net is not None:
+        # Prepare input features for neural network
+        # State: [pos_error, vel_error, attitude, angular_vel]
+        nn_input = torch.tensor([
+            ex, ey, ez,           # position errors
+            eu, ev, ew,           # velocity errors  
+            phi, theta, psi,      # attitude
+            u, v, w              # velocities
+        ], dtype=torch.float32).unsqueeze(0)  # Add batch dimension
+        
+        # Get adaptive terms from neural network
+        with torch.no_grad():
+            adaptive_terms = neural_net(nn_input).squeeze(0)
+        
+        # Extract adaptive terms for x, y, z
+        dx_hat_nn = adaptive_terms[0].item()
+        dy_hat_nn = adaptive_terms[1].item()
+        dz_hat_nn = adaptive_terms[2].item()
+        
+        # Update neural network using tracking errors
+        if optimizer is not None and len(pos) > 5:  # Update only after enough data
+            neural_net.train()
+            optimizer.zero_grad()
+            
+            # Prediction from network
+            adaptive_pred = neural_net(nn_input)
+            
+            # Target adaptive terms based on tracking errors
+            target_adaptive = torch.tensor([
+                -lamx * eu,  # x-direction adaptive target
+                -lamy * ev,  # y-direction adaptive target  
+                -lamz * ew   # z-direction adaptive target
+            ], dtype=torch.float32).unsqueeze(0)
+            
+            # Compute loss and update only the last layer
+            loss = torch.mse_loss(adaptive_pred, target_adaptive)
+            loss.backward()
+            optimizer.step()
+            
+            neural_net.eval()
+        
+        # Use neural network predictions
+        dx_hat = dx_hat_nn
+        dy_hat = dy_hat_nn
+        dz_hat = dz_hat_nn
+        
+    else:
+        # Fallback to traditional adaptive control
+        dz_hat_dot = lamz*ew
+        dz_hat += dz_hat_dot*dt
+        
+        dx_hat_dot = lamx*eu
+        dx_hat += dx_hat_dot*dt
+        
+        dy_hat_dot = lamy*ev
+        dy_hat += dy_hat_dot*dt
+    
+    # Calculate required thrust (normalized throttle for AirSim)
+    thrust_force = -(w_dot - dz_hat - g) * UAV_mass / (math.cos(phi) * math.cos(theta))
     # Convert to throttle (0-1 range), where 0.5 is approximately hover
-    throttle = 0.5 - throttle_cmd * 0.1  # Scale factor for throttle
-    throttle = max(0.0, min(1.0, throttle))
+    throttle = max(0.0, min(1.0, (thrust_force / (UAV_mass * 9.81)) * 0.5 + 0.5))
 
-    # PID control for horizontal position - compute desired accelerations
-    accel_x_desired = kp_pos[0] * (-ex) + kd_pos[0] * (-ev_x) + ki_pos[0] * (-xphi)
-    accel_y_desired = kp_pos[1] * (-ey) + kd_pos[1] * (-ev_y) + ki_pos[1] * (-xtheta)
+    # Compute desired accelerations using the adaptive terms
+    accel_x_desired = u_dot - dx_hat
+    accel_y_desired = v_dot - dy_hat
 
+    '''
+    Ux = (u_dot - dx_hat)*m/U1
+    Uy = (v_dot - dy_hat)*m/U1
+    phid_new = math.asin(Ux*math.sin(psi) - Uy*math.cos(psi))
+    thetad_new = math.asin((Ux*math.cos(psi) + Uy*math.sin(psi))/math.cos(phid_new))
+    
+    '''
+
+    # Convert desired accelerations to desired attitude angles
+    # For small angles: roll ≈ (accel_y * cos(yaw) - accel_x * sin(yaw)) / g
+    #                  pitch ≈ (accel_x * cos(yaw) + accel_y * sin(yaw)) / g
     
     # Limit acceleration commands to prevent extreme attitudes
     max_accel = 5.0  # m/s^2
@@ -116,16 +221,16 @@ def pid_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t):
     # Use desired yaw from trajectory
     yaw_desired = psid
 
-    # Return values (keeping dhat structure for compatibility)
-    dhat_new = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # Not used in PID
+    # Update disturbance estimates
+    dhat_new = [dx_hat, dy_hat, dz_hat, dphi_hat, dtheta_hat, dpsi_hat]
     jifen_new = [xphi, xtheta, xpsi]
 
     # print(f"Velocities: u={u:.2f}, v={v:.2f}, w={w:.2f} | Throttle: {throttle:.3f}, Roll: {math.degrees(roll_desired):.1f}°, Pitch: {math.degrees(pitch_desired):.1f}°, Yaw: {math.degrees(yaw_desired):.1f}°")
 
     return throttle, roll_desired, pitch_desired, yaw_desired, dhat_new, jifen_new
 
-class AirSimPIDController:
-    def __init__(self):
+class AirSimNeuralAdaptiveController:
+    def __init__(self, use_neural_net=True):
         # Connect to AirSim
         self.client = airsim.MultirotorClient()
         self.client.confirmConnection()
@@ -139,6 +244,21 @@ class AirSimPIDController:
         # Initialize adaptive controller variables
         self.dhat = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # disturbance estimates
         self.jifen = [0.0, 0.0, 0.0]  # integral terms
+        
+        # Neural Network Setup
+        self.use_neural_net = use_neural_net
+        if self.use_neural_net:
+            self.neural_net = AdaptiveNeuralNetwork(input_dim=12, hidden_dim=64, output_dim=3)
+            self.neural_net.enable_adaptation()  # Enable adaptation for last layer only
+            self.neural_net.eval()
+            
+            # Optimizer for only the adaptive layer
+            self.optimizer = optim.Adam(self.neural_net.adaptive_layer.parameters(), lr=0.001)
+            print("Neural Network Adaptive Controller initialized")
+        else:
+            self.neural_net = None
+            self.optimizer = None
+            print("Traditional Adaptive Controller initialized")
         
         # History buffers for position and attitude (controller needs derivatives)
         self.pos_history = [[], [], []]  # x, y, z
@@ -156,7 +276,7 @@ class AirSimPIDController:
         self.desired_pos_log = []
         self.desired_att_log = []
         
-        print("AirSim PID Controller initialized")
+        print("AirSim Adaptive Controller initialized")
         
     def get_state(self):
         """Get current drone state from AirSim"""
@@ -221,10 +341,10 @@ class AirSimPIDController:
         except Exception as e:
             print(f"Error sending control command: {e}")
     
-    def run_simulation(self, total_time=30.0, trajectory_func=None):
+    def run_simulation(self, total_time=180.0, trajectory_func=None):
         """Run the adaptive control simulation"""
         if trajectory_func is None:
-            trajectory_func = test1
+            trajectory_func = test3_random_spline_trajectory
             
         print(f"Starting simulation for {total_time} seconds...")
         print("Taking off...")
@@ -253,11 +373,12 @@ class AirSimPIDController:
             # Only run controller if we have enough history
             if len(self.pos_history[0]) >= 3 and len(self.attd_history[0]) >= 3:
                 
-                # Run PID controller
-                throttle, roll_desired, pitch_desired, yaw_desired, self.dhat, self.jifen = pid_controller(
+                # Run neural network adaptive controller
+                throttle, roll_desired, pitch_desired, yaw_desired, self.dhat, self.jifen = nn_adaptive_controller(
                     self.pos_history, self.vel_history, self.att_history, self.ang_vel_history,
                     self.posd_history, self.attd_history,
-                    self.dhat, self.jifen, self.dt, self.simulation_time
+                    self.dhat, self.jifen, self.dt, self.simulation_time,
+                    neural_net=self.neural_net, optimizer=self.optimizer
                 )
                 
                 # Update desired attitude with computed values
@@ -277,7 +398,7 @@ class AirSimPIDController:
                 self.desired_pos_log.append(desired_pos.copy())
                 self.desired_att_log.append(desired_att.copy())
                 
-                # Print status every秒
+                # Print status every second
                 if step_count % 50 == 0:
                     print(f"Time: {self.simulation_time:.1f}s")
                     print(f"  Position: [{current_pos[0]:.2f}, {current_pos[1]:.2f}, {current_pos[2]:.2f}]")
@@ -285,20 +406,6 @@ class AirSimPIDController:
                     print(f"  Target:   [{xd:.2f}, {yd:.2f}, {zd:.2f}]")
                     print(f"  Attitude: [{math.degrees(current_att[0]):.1f}°, {math.degrees(current_att[1]):.1f}°, {math.degrees(current_att[2]):.1f}°]")
                     print(f"  Controls: Throttle={throttle:.3f}, Roll={math.degrees(roll_desired):.1f}°, Pitch={math.degrees(pitch_desired):.1f}°, Yaw={math.degrees(yaw_desired):.1f}°")
-                    # 获取螺旋桨转速
-                    try:
-                        rotor_states = self.client.getRotorStates()
-                        # rotor_states.rotors 是一个列表，包含每个螺旋桨的状态
-                        pwm_list = []
-                        for i in range(4):
-                            if i < len(rotor_states.rotors):
-                                rpm = rotor_states.rotors[i]['speed']
-                                pwm_list.append(rpm)
-                            else:
-                                pwm_list.append(None)
-                        print(f"  Rotor RPMs (PWM): {pwm_list}")
-                    except Exception as e:
-                        print(f"  Rotor RPMs (PWM) 获取失败: {e}")
                     print()
             
             # Update simulation time
@@ -411,7 +518,7 @@ class AirSimPIDController:
         
         plt.tight_layout()
         plt.show()
-        
+                
         # 2D trajectory plot (X-Y)
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.plot(data['position'][:, 0], data['position'][:, 1], 'b-', label='Actual', linewidth=2)
@@ -448,10 +555,10 @@ class AirSimPIDController:
 def main():
     """Main function to run the AirSim adaptive control simulation"""
     try:
-        # Create controller instance
-        controller = AirSimPIDController()
+        # Create neural network adaptive controller instance
+        controller = AirSimNeuralAdaptiveController(use_neural_net=True)
         selected_traj = test3_random_spline_trajectory()
-        sim_time = 180
+        sim_time = 180.0
         
         # Run simulation
         data = controller.run_simulation(total_time=sim_time, trajectory_func=selected_traj)
@@ -471,14 +578,7 @@ def main():
 
 
 def test1(t):
-    if t < 5:
-        return 0, 0, -5-2*t, 0
-    elif t < 10:
-        return -5*(t-5), 0, -5-2*t, 0
-    elif t < 15:
-        return -25, -5*(t-10), -5-2*t, 0
-    else:
-        return -25, -25, -5-2*t, 0
+    return 0.1*t, -0.0, -5.0-1.0*t, 0.0
 
 def test2(t):
     """Figure-8 trajectory in X-Y plane at 2 m height"""
@@ -488,7 +588,7 @@ def test2(t):
     yaw_desired = 0.0  # Keep yaw constant
     return x_desired, y_desired, z_desired, yaw_desired
 
-# 随机轨迹函数，持续约1分钟
+# 随机轨迹函数，持续约3分钟
 def test3_random_spline_trajectory():
     """
     生成一个持续约60秒的随机轨迹点，并用样条插值生成平滑轨迹。
@@ -498,12 +598,12 @@ def test3_random_spline_trajectory():
     from scipy.interpolate import CubicSpline
     np.random.seed(42)  # 保证可复现
     total_time = 180.0
-    num_points = 80  # 轨迹点数量更多
+    num_points = 20  # 轨迹点数量更多
     t_points = np.linspace(0, total_time, num_points)
     # 随机生成轨迹点，范围可调整
     x_points = np.random.uniform(-15, 15, num_points)
     y_points = np.random.uniform(-15, 15, num_points)
-    z_points = np.random.uniform(-40, -3, num_points)  # NED坐标，负值，范围更大
+    z_points = np.random.uniform(-8, -2, num_points)  # NED坐标，负值，范围更大
     yaw_points = np.random.uniform(-np.pi, np.pi, num_points)
     # 用三次样条插值
     x_spline = CubicSpline(t_points, x_points)
