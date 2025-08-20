@@ -8,7 +8,7 @@ device = "cpu"
 # 自适应控制参数 - Conservative tuning for stability
 cx = 3
 cy = 3
-cz = 0.7
+cz = 0.6
 cu = 2
 cv = 2
 cw = 5
