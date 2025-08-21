@@ -4,4 +4,5 @@ nerual-fly-simulink/slprj
 logs_random_profiles
 result
 result_pinn_online
-logs_test_fig8/
+logs_test_fig8
+test_wind

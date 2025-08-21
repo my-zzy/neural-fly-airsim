@@ -22,12 +22,23 @@ PROFILES_ALL = {
     "12.1mps":{"tag":"12.1mps","kind":"const", "dir":(1,0,0), "mag":18},
     "sinusoidal_0to8mps":  {"tag":"sinusoidal_0to8mps","kind":"sin","dir":(1,0,0),"mag_mean":4.0,"mag_amp":4.0,"freq_hz":0.33},
     "sinusoidal_0to12mps": {"tag":"sinusoidal_0to12mps","kind":"sin","dir":(1,0,0),"mag_mean":6.0,"mag_amp":6.0,"freq_hz":0.25},
-    "gusty_12mps":{"tag":"gusty_12mps","kind":"gust","dir":(1,0,0),"mag":12.0,"noise_std":1.0}
+    "gusty_12mps":{"tag":"gusty_12mps","kind":"gust","dir":(1,0,0),"mag":12.0,"noise_std":1.0},
+    "5X": {"tag":"5X","kind":"const","dir":(1,0,0),"mag":5.0},
+    "10X": {"tag":"10X","kind":"const","dir":(1,0,0),"mag":10.0},
+    "15X": {"tag":"15X","kind":"const","dir":(1,0,0),"mag":15.0},
+    "5Y": {"tag":"5Y","kind":"const","dir":(0,1,0),"mag":5.0},
+    "10Y": {"tag":"10Y","kind":"const","dir":(0,1,0),"mag":10.0},
+    "15Y": {"tag":"15Y","kind":"const","dir":(0,1,0),"mag":15.0},
+    "5XY": {"tag":"5XY","kind":"const","dir":(0.707,0.707,0),"mag":5.0},
+    "10XY": {"tag":"10XY","kind":"const","dir":(0.707,0.707,0),"mag":10.0},
+    "15XY": {"tag":"15XY","kind":"const","dir":(0.707,0.707,0),"mag":15.0}
 }
 
 # 输出目录
-OUT_DIR_TRAIN = Path("logs_random_profiles")
-OUT_DIR_TEST  = Path("logs_test_fig8")
+# OUT_DIR_TRAIN = Path("logs_random_profiles")
+# OUT_DIR_TEST  = Path("logs_test_fig8")
+OUT_DIR_TRAIN = Path("train_wind")
+OUT_DIR_TEST = Path("test_wind")
 
 # 标签映射
 WIND_CONDITIONS = {
@@ -40,11 +51,22 @@ WIND_CONDITIONS = {
     "12.1mps": "100wind",
     "sinusoidal_0to12mps": "70p20sint",
     "sinusoidal_0to8mps": "20wind",
-    "gusty_12mps": "30wind"
+    "gusty_12mps": "30wind",
+    "5X": "5windX",
+    "10X": "10windX",
+    "15X": "15windX",
+    "5Y": "5windY",
+    "10Y": "10windY",
+    "15Y": "15windY",
+    "5XY": "5windXY",
+    "10XY": "10windXY",
+    "15XY": "15windXY"
 }
 
-TRAIN_CONDS = ["10wind", "20wind", "30wind", "40wind", "50wind", "nowind"]
-TEST_CONDS  = ["nowind", "10wind", "20wind", "30wind", "35wind", "40wind", "50wind", "70wind", "70p20sint", "100wind"]
+# TRAIN_CONDS = ["10wind", "20wind", "30wind", "40wind", "50wind", "nowind"]
+# TEST_CONDS  = ["nowind", "10wind", "20wind", "30wind", "35wind", "40wind", "50wind", "70wind", "70p20sint", "100wind"]
+TRAIN_CONDS = []
+TEST_CONDS = ["nowind", "5windX", "10windX", "15windX", "5windY", "10windY", "15windY", "5windXY", "10windXY", "15windXY"]
 
 # =============== 姿态/旋转工具 ===============
 def quaternion_to_euler(x, y, z, w):
@@ -334,6 +356,8 @@ class SimpleFlightController:
                 a_world = np.zeros(3) if self.prev_vel is None else (np.array(cur_vel)-np.array(self.prev_vel))/self.dt
                 b_z = cur_R[:,2]
                 thrust_force = (thr/self.hover_throttle)*mass*g
+                # thrust_force = (thr - 0.5) * 2 * mass * g
+                # sum(c*w^2)
                 f_thrust_world = -thrust_force*b_z
                 fa = mass*a_world - f_thrust_world - np.array([0.0,0.0,mass*g])
 
@@ -463,6 +487,8 @@ def main():
     all_items = list(PROFILES_ALL.values())
     train_list = [(p, WIND_CONDITIONS[p["tag"]]) for p in all_items if WIND_CONDITIONS.get(p["tag"]) in TRAIN_CONDS]
     test_list  = [(p, WIND_CONDITIONS[p["tag"]]) for p in all_items if WIND_CONDITIONS.get(p["tag"]) in TEST_CONDS]
+    print(train_list)
+    print(test_list)
 
     def run_one(profile, condition, traj_fn, traj_type, sim_time, out_root=None):
         print(f"[Run] {traj_type} | {condition} | profile={profile['tag']} | {sim_time}s")
