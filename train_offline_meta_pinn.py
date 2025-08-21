@@ -64,13 +64,24 @@ def load_datasets(data_dir, feature_keys, output_key="fa"):
         print(f"[Loaded] {f} | X.shape={ds.X.shape}, Y.shape={ds.Y.shape}")
     return datasets
 
+def save_input_scaler(tasks, out_npz_path):
+    X_all = np.concatenate([t.X for t in tasks], axis=0)
+    x_mean = X_all.mean(axis=0).astype(np.float32)
+    x_std  = X_all.std(axis=0).astype(np.float32)
+    x_std[x_std < 1e-6] = 1.0  # 防止除零
+    os.makedirs(os.path.dirname(out_npz_path), exist_ok=True)
+    np.savez(out_npz_path, x_mean=x_mean, x_std=x_std)
+    print(f"[Scaler saved] {out_npz_path} | dim={x_mean.shape[0]}")
+    return x_mean, x_std
+
 # ========== 主训练流程 ==========
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     set_seed(DEFAULT_OPTIONS['seed'], deterministic=True)
 
     # 输入特征选择
-    feature_keys = ["p", "v", "q", "w"]   # 可以加上 "p_d", "q_sp", "pwm"
+    feature_keys = DEFAULT_OPTIONS['features']   # 由配置统一指定，例如 ['v','q','pwm']
+    # feature_keys = ["p", "v", "q", "w"]   # 可以加上 "p_d", "q_sp", "pwm"
     output_key = "fa"
 
     # 1. 加载数据
@@ -94,8 +105,18 @@ def main():
     ).to(device)
 
     # 3. 训练
+    # save_dir = "saved_models/meta_pinn_offline"
+    # os.makedirs(save_dir, exist_ok=True)
+    # hist = train_meta_pinn_multitask(
+    #     model, TrainData, TestData,
+    #     DEFAULT_OPTIONS['UAV_mass'], DEFAULT_OPTIONS,
+    #     save_path=save_dir
+    # )
     save_dir = "saved_models/meta_pinn_offline"
     os.makedirs(save_dir, exist_ok=True)
+    # 先保存 scaler（与 DEFAULT_OPTIONS['features'] 对齐）
+    save_input_scaler(TrainData, os.path.join(save_dir, "x_scaler.npz"))
+    # 再训练并保存模型
     hist = train_meta_pinn_multitask(
         model, TrainData, TestData,
         DEFAULT_OPTIONS['UAV_mass'], DEFAULT_OPTIONS,
@@ -106,8 +127,13 @@ def main():
     torch.save(model.state_dict(), os.path.join(save_dir, "meta_pinn_last.pth"))
     np.save(os.path.join(save_dir, "history_train_total.npy"), np.array(hist['train_total']))
     np.save(os.path.join(save_dir, "history_test_mse.npy"),   np.array(hist['test_avg_mse']))
-    plot_training_curves(hist)
 
+    # 保存训练曲线图片到同名目录
+    import matplotlib.pyplot as plt
+    fig = plot_training_curves(hist)
+    fig.savefig(os.path.join(save_dir, "training_curves.png"))
+    plt.close(fig)
+    
     print("Offline Meta-PINN training finished!")
 
 if __name__ == "__main__":

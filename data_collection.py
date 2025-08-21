@@ -19,7 +19,7 @@ PROFILES_ALL = {
     "6.0mps":{"tag":"6.0mps","kind":"const", "dir":(1,0,0), "mag":6.0},
     "8.5mps":{"tag":"8.5mps","kind":"const", "dir":(1,0,0), "mag":8.5},
     "10.0mps":{"tag":"10.0mps","kind":"const", "dir":(1,0,0), "mag":10.0},
-    "12.1mps":{"tag":"12.1mps","kind":"const", "dir":(1,0,0), "mag":12.1},
+    "12.1mps":{"tag":"12.1mps","kind":"const", "dir":(1,0,0), "mag":18},
     "sinusoidal_0to8mps":  {"tag":"sinusoidal_0to8mps","kind":"sin","dir":(1,0,0),"mag_mean":4.0,"mag_amp":4.0,"freq_hz":0.33},
     "sinusoidal_0to12mps": {"tag":"sinusoidal_0to12mps","kind":"sin","dir":(1,0,0),"mag_mean":6.0,"mag_amp":6.0,"freq_hz":0.25},
     "gusty_12mps":{"tag":"gusty_12mps","kind":"gust","dir":(1,0,0),"mag":12.0,"noise_std":1.0}
@@ -403,7 +403,7 @@ class SimpleFlightController:
                     str(data_log['fa'][i]),
                     str(data_log['pwm'][i]),
                 ])
-        print(f"飞行数据已保存] {out_csv}")
+        print(f"飞行数据已保存 {out_csv}")
         self._save_figures(out_dir, base, data_log)
         print(f"飞行图像已保存")
         #print(f"[图像保存] {out_dir / (base+'_traj2d.png')}")
