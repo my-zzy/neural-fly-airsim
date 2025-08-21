@@ -325,6 +325,107 @@ class AirSimAdaptiveController:
         
         return self.get_logged_data()
     
+    def calculate_trajectory_mse(self, data):
+        """Calculate MSE loss between actual and desired trajectories"""
+        if len(data['time']) == 0:
+            print("No data available for MSE calculation")
+            return None
+        
+        # Calculate position MSE
+        pos_errors = data['position'] - data['desired_position']
+        pos_mse_x = np.mean(pos_errors[:, 0]**2)
+        pos_mse_y = np.mean(pos_errors[:, 1]**2)
+        pos_mse_z = np.mean(pos_errors[:, 2]**2)
+        pos_mse_total = np.mean(np.sum(pos_errors**2, axis=1))
+        
+        # Calculate attitude MSE (convert to degrees for better interpretation)
+        att_errors_deg = np.degrees(data['attitude'] - data['desired_attitude'])
+        att_mse_roll = np.mean(att_errors_deg[:, 0]**2)
+        att_mse_pitch = np.mean(att_errors_deg[:, 1]**2)
+        att_mse_yaw = np.mean(att_errors_deg[:, 2]**2)
+        att_mse_total = np.mean(np.sum(att_errors_deg**2, axis=1))
+        
+        # Calculate RMS errors (square root of MSE)
+        pos_rms_x = np.sqrt(pos_mse_x)
+        pos_rms_y = np.sqrt(pos_mse_y)
+        pos_rms_z = np.sqrt(pos_mse_z)
+        pos_rms_total = np.sqrt(pos_mse_total)
+        
+        att_rms_roll = np.sqrt(att_mse_roll)
+        att_rms_pitch = np.sqrt(att_mse_pitch)
+        att_rms_yaw = np.sqrt(att_mse_yaw)
+        att_rms_total = np.sqrt(att_mse_total)
+        
+        # Print results
+        print("\n" + "="*60)
+        print("TRAJECTORY TRACKING PERFORMANCE METRICS")
+        print("="*60)
+        
+        print("\nPosition Tracking Errors:")
+        print(f"  X-axis  - MSE: {pos_mse_x:8.4f} m²,  RMS: {pos_rms_x:8.4f} m")
+        print(f"  Y-axis  - MSE: {pos_mse_y:8.4f} m²,  RMS: {pos_rms_y:8.4f} m")
+        print(f"  Z-axis  - MSE: {pos_mse_z:8.4f} m²,  RMS: {pos_rms_z:8.4f} m")
+        print(f"  Total   - MSE: {pos_mse_total:8.4f} m²,  RMS: {pos_rms_total:8.4f} m")
+        
+        print("\nAttitude Tracking Errors:")
+        print(f"  Roll    - MSE: {att_mse_roll:8.4f} deg², RMS: {att_rms_roll:8.4f} deg")
+        print(f"  Pitch   - MSE: {att_mse_pitch:8.4f} deg², RMS: {att_rms_pitch:8.4f} deg")
+        print(f"  Yaw     - MSE: {att_mse_yaw:8.4f} deg², RMS: {att_rms_yaw:8.4f} deg")
+        print(f"  Total   - MSE: {att_mse_total:8.4f} deg², RMS: {att_rms_total:8.4f} deg")
+        
+        # Calculate maximum errors
+        pos_max_errors = np.max(np.abs(pos_errors), axis=0)
+        att_max_errors_deg = np.max(np.abs(att_errors_deg), axis=0)
+        
+        print("\nMaximum Absolute Errors:")
+        print(f"  Position - X: {pos_max_errors[0]:6.4f} m, Y: {pos_max_errors[1]:6.4f} m, Z: {pos_max_errors[2]:6.4f} m")
+        print(f"  Attitude - Roll: {att_max_errors_deg[0]:6.4f}°, Pitch: {att_max_errors_deg[1]:6.4f}°, Yaw: {att_max_errors_deg[2]:6.4f}°")
+        
+        print("="*60)
+        
+        # Return metrics as dictionary
+        return {
+            'position': {
+                'mse': {'x': pos_mse_x, 'y': pos_mse_y, 'z': pos_mse_z, 'total': pos_mse_total},
+                'rms': {'x': pos_rms_x, 'y': pos_rms_y, 'z': pos_rms_z, 'total': pos_rms_total},
+                'max_error': {'x': pos_max_errors[0], 'y': pos_max_errors[1], 'z': pos_max_errors[2]}
+            },
+            'attitude': {
+                'mse': {'roll': att_mse_roll, 'pitch': att_mse_pitch, 'yaw': att_mse_yaw, 'total': att_mse_total},
+                'rms': {'roll': att_rms_roll, 'pitch': att_rms_pitch, 'yaw': att_rms_yaw, 'total': att_rms_total},
+                'max_error': {'roll': att_max_errors_deg[0], 'pitch': att_max_errors_deg[1], 'yaw': att_max_errors_deg[2]}
+            }
+        }
+    
+    def save_mse_metrics(self, metrics, filename="trajectory_mse_metrics.txt"):
+        """Save MSE metrics to a text file"""
+        if metrics is None:
+            print("No metrics to save")
+            return
+            
+        with open(filename, 'w') as f:
+            f.write("TRAJECTORY TRACKING PERFORMANCE METRICS\n")
+            f.write("="*60 + "\n\n")
+            
+            f.write("Position Tracking Errors:\n")
+            f.write(f"  X-axis  - MSE: {metrics['position']['mse']['x']:8.4f} m²,  RMS: {metrics['position']['rms']['x']:8.4f} m\n")
+            f.write(f"  Y-axis  - MSE: {metrics['position']['mse']['y']:8.4f} m²,  RMS: {metrics['position']['rms']['y']:8.4f} m\n")
+            f.write(f"  Z-axis  - MSE: {metrics['position']['mse']['z']:8.4f} m²,  RMS: {metrics['position']['rms']['z']:8.4f} m\n")
+            f.write(f"  Total   - MSE: {metrics['position']['mse']['total']:8.4f} m²,  RMS: {metrics['position']['rms']['total']:8.4f} m\n\n")
+            
+            f.write("Attitude Tracking Errors:\n")
+            f.write(f"  Roll    - MSE: {metrics['attitude']['mse']['roll']:8.4f} deg², RMS: {metrics['attitude']['rms']['roll']:8.4f} deg\n")
+            f.write(f"  Pitch   - MSE: {metrics['attitude']['mse']['pitch']:8.4f} deg², RMS: {metrics['attitude']['rms']['pitch']:8.4f} deg\n")
+            f.write(f"  Yaw     - MSE: {metrics['attitude']['mse']['yaw']:8.4f} deg², RMS: {metrics['attitude']['rms']['yaw']:8.4f} deg\n")
+            f.write(f"  Total   - MSE: {metrics['attitude']['mse']['total']:8.4f} deg², RMS: {metrics['attitude']['rms']['total']:8.4f} deg\n\n")
+            
+            f.write("Maximum Absolute Errors:\n")
+            f.write(f"  Position - X: {metrics['position']['max_error']['x']:6.4f} m, Y: {metrics['position']['max_error']['y']:6.4f} m, Z: {metrics['position']['max_error']['z']:6.4f} m\n")
+            f.write(f"  Attitude - Roll: {metrics['attitude']['max_error']['roll']:6.4f}°, Pitch: {metrics['attitude']['max_error']['pitch']:6.4f}°, Yaw: {metrics['attitude']['max_error']['yaw']:6.4f}°\n")
+            f.write("="*60 + "\n")
+            
+        print(f"MSE metrics saved to {filename}")
+    
     def get_logged_data(self):
         """Return logged data as numpy arrays"""
         return {
@@ -436,6 +537,62 @@ class AirSimAdaptiveController:
         
         plt.tight_layout()
         # plt.show()
+    
+    def plot_tracking_errors(self, data):
+        """Plot tracking errors over time"""
+        if len(data['time']) == 0:
+            print("No data available for error plotting")
+            return
+            
+        # Calculate errors
+        pos_errors = data['position'] - data['desired_position']
+        att_errors_deg = np.degrees(data['attitude'] - data['desired_attitude'])
+        
+        # Plot position errors
+        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        
+        # Position error plots
+        for i, label in enumerate(['X', 'Y', 'Z']):
+            axes[0, i].plot(data['time'], pos_errors[:, i], 'r-', linewidth=2)
+            axes[0, i].set_xlabel('Time (s)')
+            axes[0, i].set_ylabel(f'{label} Error (m)')
+            axes[0, i].set_title(f'{label}-Position Error')
+            axes[0, i].grid(True)
+            axes[0, i].axhline(y=0, color='k', linestyle='--', alpha=0.3)
+        
+        # Attitude error plots
+        for i, label in enumerate(['Roll', 'Pitch', 'Yaw']):
+            axes[1, i].plot(data['time'], att_errors_deg[:, i], 'b-', linewidth=2)
+            axes[1, i].set_xlabel('Time (s)')
+            axes[1, i].set_ylabel(f'{label} Error (degrees)')
+            axes[1, i].set_title(f'{label} Error')
+            axes[1, i].grid(True)
+            axes[1, i].axhline(y=0, color='k', linestyle='--', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+        
+        # Plot error magnitude over time
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        
+        # Position error magnitude
+        pos_error_mag = np.sqrt(np.sum(pos_errors**2, axis=1))
+        ax1.plot(data['time'], pos_error_mag, 'r-', linewidth=2)
+        ax1.set_xlabel('Time (s)')
+        ax1.set_ylabel('Position Error Magnitude (m)')
+        ax1.set_title('Position Tracking Error Magnitude')
+        ax1.grid(True)
+        
+        # Attitude error magnitude
+        att_error_mag = np.sqrt(np.sum(att_errors_deg**2, axis=1))
+        ax2.plot(data['time'], att_error_mag, 'b-', linewidth=2)
+        ax2.set_xlabel('Time (s)')
+        ax2.set_ylabel('Attitude Error Magnitude (degrees)')
+        ax2.set_title('Attitude Tracking Error Magnitude')
+        ax2.grid(True)
+        
+        plt.tight_layout()
+        plt.show()
 
 
 def main():
@@ -452,6 +609,16 @@ def main():
         # Plot results
         if len(data['time']) > 0:
             controller.plot_results(data)
+            
+            # Calculate and display MSE metrics
+            mse_metrics = controller.calculate_trajectory_mse(data)
+            
+            # Save MSE metrics to file
+            # if mse_metrics is not None:
+            #     controller.save_mse_metrics(mse_metrics, f"adaptive_controller_mse_metrics_{selected_traj.__name__}.txt")
+            
+            # Plot tracking errors
+            controller.plot_tracking_errors(data)
         else:
             print("No data to plot - simulation may have failed")
             
