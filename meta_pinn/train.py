@@ -4,22 +4,92 @@ from .utils import StandardScaler, linear_warm, save_checkpoint
 from .dataio import prepare_dataloader, convert_dataset_to_numpy, build_condition_vector_for_dataset
 from .adapt import backup_task_embeddings, restore_task_embeddings, pick_support_indices, adapt_task_embedding
 
+# def _fit_scalers(Data, options, model, device):
+#     X_all, F_all, C_all_list, Ns = [], [], [], []
+#     cond_dim = options.get('cond_dim', 1)
+#     for i in range(len(Data)):
+#         Xi,Vi,Ai,Alpi,Fi,Fni = convert_dataset_to_numpy(Data[i], options)
+#         X_all.append(Xi); F_all.append(Fi); Ns.append(len(Xi))
+#         C_all_list.append(build_condition_vector_for_dataset(Data[i], cond_dim))
+#     X_all = np.vstack(X_all); F_all = np.vstack(F_all)
+#     x_scaler = StandardScaler().fit(X_all); f_scaler = StandardScaler().fit(F_all)
+#     C_all = np.vstack(C_all_list); 
+#     c_scaler = StandardScaler().fit(C_all)
+
+#     model.set_force_scaler(torch.tensor(f_scaler.mean, dtype=torch.float32, device=device),
+#                            torch.tensor(f_scaler.std,  dtype=torch.float32, device=device))
+#     model.set_condition_scaler(torch.tensor(c_scaler.mean, dtype=torch.float32, device=device),
+#                                torch.tensor(c_scaler.std,  dtype=torch.float32, device=device))
+#     return x_scaler, Ns
 def _fit_scalers(Data, options, model, device):
+    import numpy as np
     X_all, F_all, C_all_list, Ns = [], [], [], []
     cond_dim = options.get('cond_dim', 1)
+
+    # 逐任务收集
+    per_task_stats = []
     for i in range(len(Data)):
         Xi,Vi,Ai,Alpi,Fi,Fni = convert_dataset_to_numpy(Data[i], options)
         X_all.append(Xi); F_all.append(Fi); Ns.append(len(Xi))
         C_all_list.append(build_condition_vector_for_dataset(Data[i], cond_dim))
-    X_all = np.vstack(X_all); F_all = np.vstack(F_all)
-    x_scaler = StandardScaler().fit(X_all); f_scaler = StandardScaler().fit(F_all)
-    C_all = np.vstack(C_all_list); 
+        # 任务级统计（可选）
+        per_task_stats.append((
+            i,
+            Fi.mean(axis=0),           # (3,)
+            Fi.std(axis=0),            # (3,)
+            np.sqrt((Fi**2).mean(axis=0))  # RMS per axis
+        ))
+
+    X_all = np.vstack(X_all)
+    F_all = np.vstack(F_all)
+    C_all = np.vstack(C_all_list)
+
+    # === 全局 fa 统计 ===
+    fa_mean = F_all.mean(axis=0)             # (3,)
+    fa_std  = F_all.std(axis=0)              # (3,)
+    fa_rms  = np.sqrt((F_all**2).mean(axis=0))
+    fa_std_norm = np.linalg.norm(fa_std)
+
+    # 打印（四舍五入避免刷屏）
+    print("[fa stats / train all] mean =", np.round(fa_mean, 4),
+          "| std =", np.round(fa_std, 4),
+          "| rms =", np.round(fa_rms, 4),
+          "| ||std|| =", round(float(fa_std_norm), 4))
+
+    # 小标准差告警（避免 scaler 爆炸）
+    tiny = (fa_std < 1e-6)
+    if tiny.any():
+        bad_axes = [idx for idx, ok in enumerate(~tiny) if not ok]
+        print("[warn] Some fa dims have ~zero std; dims:", bad_axes,
+              "| raw std:", np.round(fa_std, 8))
+
+    # === 拟合 scaler ===
+    x_scaler = StandardScaler().fit(X_all)
+    f_scaler = StandardScaler().fit(F_all)
     c_scaler = StandardScaler().fit(C_all)
 
-    model.set_force_scaler(torch.tensor(f_scaler.mean, dtype=torch.float32, device=device),
-                           torch.tensor(f_scaler.std,  dtype=torch.float32, device=device))
-    model.set_condition_scaler(torch.tensor(c_scaler.mean, dtype=torch.float32, device=device),
-                               torch.tensor(c_scaler.std,  dtype=torch.float32, device=device))
+    # 归一化后再核对一次（应 ~ N(0,1)）
+    F_all_norm = (F_all - f_scaler.mean) / (f_scaler.std + 1e-12)
+    fa_n_mean = F_all_norm.mean(axis=0)
+    fa_n_std  = F_all_norm.std(axis=0)
+    print("[fa stats / normalized] mean ≈", np.round(fa_n_mean, 3),
+          "| std ≈", np.round(fa_n_std, 3))
+
+    # 可选：逐任务简表
+    print("---- per-task fa (mean | std) ----")
+    for i, m, s, r in per_task_stats:
+        print(f"  task {i}: mean={np.round(m,3)} | std={np.round(s,3)} | rms={np.round(r,3)}")
+
+    # 把 scaler 参数喂给模型（模型内部在 total_loss / pred 时用）
+    model.set_force_scaler(
+        torch.tensor(f_scaler.mean, dtype=torch.float32, device=device),
+        torch.tensor(f_scaler.std,  dtype=torch.float32, device=device)
+    )
+    model.set_condition_scaler(
+        torch.tensor(c_scaler.mean, dtype=torch.float32, device=device),
+        torch.tensor(c_scaler.std,  dtype=torch.float32, device=device)
+    )
+
     return x_scaler, Ns
 
 def train_meta_pinn_multitask(model, Data, TestData, mass, options, save_path=None):

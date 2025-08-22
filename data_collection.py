@@ -11,62 +11,36 @@ from config import *
 
 HOVER_THROTTLE = 0.594
 
-# ================= 风况全集 =================
+# ---------------- 风况全集 ----------------
 PROFILES_ALL = {
-    "0mps":  {"tag":"0mps",  "kind":"const", "dir":(1,0,0), "mag":0.0},
-    "2.0mps":{"tag":"2.0mps","kind":"const", "dir":(1,0,0), "mag":2.0},
-    "4.2mps":{"tag":"4.2mps","kind":"const", "dir":(1,0,0), "mag":4.2},
-    "6.0mps":{"tag":"6.0mps","kind":"const", "dir":(1,0,0), "mag":6.0},
-    "8.5mps":{"tag":"8.5mps","kind":"const", "dir":(1,0,0), "mag":8.5},
-    "10.0mps":{"tag":"10.0mps","kind":"const", "dir":(1,0,0), "mag":10.0},
-    "12.1mps":{"tag":"12.1mps","kind":"const", "dir":(1,0,0), "mag":18},
-    "sinusoidal_0to8mps":  {"tag":"sinusoidal_0to8mps","kind":"sin","dir":(1,0,0),"mag_mean":4.0,"mag_amp":4.0,"freq_hz":0.33},
-    "sinusoidal_0to12mps": {"tag":"sinusoidal_0to12mps","kind":"sin","dir":(1,0,0),"mag_mean":6.0,"mag_amp":6.0,"freq_hz":0.25},
-    "gusty_12mps":{"tag":"gusty_12mps","kind":"gust","dir":(1,0,0),"mag":12.0,"noise_std":1.0},
-    "5X": {"tag":"5X","kind":"const","dir":(1,0,0),"mag":5.0},
-    "10X": {"tag":"10X","kind":"const","dir":(1,0,0),"mag":10.0},
-    "15X": {"tag":"15X","kind":"const","dir":(1,0,0),"mag":15.0},
-    "5Y": {"tag":"5Y","kind":"const","dir":(0,1,0),"mag":5.0},
-    "10Y": {"tag":"10Y","kind":"const","dir":(0,1,0),"mag":10.0},
-    "15Y": {"tag":"15Y","kind":"const","dir":(0,1,0),"mag":15.0},
-    "5XY": {"tag":"5XY","kind":"const","dir":(0.707,0.707,0),"mag":5.0},
-    "10XY": {"tag":"10XY","kind":"const","dir":(0.707,0.707,0),"mag":10.0},
-    "15XY": {"tag":"15XY","kind":"const","dir":(0.707,0.707,0),"mag":15.0}
+    "0mps":  {"tag":"0mps",  "kind":"const", "dir":(0,1,0), "mag":0.0},
+    "5mps":{"tag":"5mps","kind":"const", "dir":(0,1,0), "mag":5.0},
+    "10mps":{"tag":"10mps","kind":"const", "dir":(0,1,0), "mag":10.0},
+    "12mps":{"tag":"12mps","kind":"const", "dir":(0,1,0), "mag":12.0},
+    "13.5mps":{"tag":"13.5mps","kind":"const", "dir":(0,1,0), "mag":13.5},
+    "15mps":{"tag":"15mps","kind":"const", "dir":(0,1,0), "mag":15.0},
+    "sinusoidal_0to10mps":  {"tag":"sinusoidal_0to10mps","kind":"sin","dir":(0,1,0),"mag_mean":5.0,"mag_amp":5.0,"freq_hz":0.33},
+    "sinusoidal_0to18mps": {"tag":"sinusoidal_0to18mps","kind":"sin","dir":(0,1,0),"mag_mean":9.0,"mag_amp":9.0,"freq_hz":0.25}
 }
 
-# 输出目录
-# OUT_DIR_TRAIN = Path("logs_random_profiles")
-# OUT_DIR_TEST  = Path("logs_test_fig8")
-OUT_DIR_TRAIN = Path("train_wind")
-OUT_DIR_TEST = Path("test_wind")
-
-# 标签映射
 WIND_CONDITIONS = {
     "0mps": "nowind",
-    "2.0mps": "10wind",
-    "4.2mps": "35wind",
-    "6.0mps": "40wind",
-    "8.5mps": "70wind",
-    "10.0mps": "50wind",
-    "12.1mps": "100wind",
-    "sinusoidal_0to12mps": "70p20sint",
-    "sinusoidal_0to8mps": "20wind",
-    "gusty_12mps": "30wind",
-    "5X": "5windX",
-    "10X": "10windX",
-    "15X": "15windX",
-    "5Y": "5windY",
-    "10Y": "10windY",
-    "15Y": "15windY",
-    "5XY": "5windXY",
-    "10XY": "10windXY",
-    "15XY": "15windXY"
+    "5mps": "5wind",
+    "10mps": "10wind",
+    "12mps": "12wind",
+    "13.5mps": "13p5wind",
+    "15mps": "15wind",
+    "sinusoidal_0to10mps": "10sint",
+    "sinusoidal_0to18mps": "18sint"
 }
+TRAIN_CONDS = ["nowind", "5wind", "10wind", "12wind", "13p5wind","10sint"]
+TEST_CONDS  = ["nowind", "5wind", "10wind", "12wind", "13p5wind", "15wind", "18sint"]
 
-# TRAIN_CONDS = ["10wind", "20wind", "30wind", "40wind", "50wind", "nowind"]
-# TEST_CONDS  = ["nowind", "10wind", "20wind", "30wind", "35wind", "40wind", "50wind", "70wind", "70p20sint", "100wind"]
-TRAIN_CONDS = []
-TEST_CONDS = ["nowind", "5windX", "10windX", "15windX", "5windY", "10windY", "15windY", "5windXY", "10windXY", "15windXY"]
+# 输出目录
+OUT_DIR_TRAIN = Path("logs_random_profiles")
+OUT_DIR_TEST  = Path("logs_test_fig8")
+# OUT_DIR_TRAIN = Path("train_wind")
+# OUT_DIR_TEST = Path("test_wind")
 
 # =============== 姿态/旋转工具 ===============
 def quaternion_to_euler(x, y, z, w):
@@ -217,7 +191,7 @@ class SimpleFlightController:
         Z = profile["dir"][2] * mag
         wind = airsim.Vector3r(X, Y, Z)
         self.client.simSetWind(wind)
-        print(f"[风场设置] t={t:.2f}s | tag={profile['tag']} | wind=({X:.2f}, {Y:.2f}, {Z:.2f})")
+        #print(f"[风场设置] t={t:.2f}s | tag={profile['tag']} | wind=({X:.2f}, {Y:.2f}, {Z:.2f})")
   
     def get_state(self):
         state = self.client.getMultirotorState()

@@ -2,7 +2,7 @@
 import torch, torch.nn as nn, torch.nn.functional as Fnn
 
 class MetaPINN(nn.Module):
-    def __init__(self, input_dim, num_tasks, task_dim=8, hidden_dim=64, use_uncertainty=True,
+    def __init__(self, input_dim, num_tasks, task_dim=16, hidden_dim=128, use_uncertainty=True,
                  cond_dim=1, use_cond_mod=True, cond_mod_from='target', beta_min=0.15, beta_max=8.0):
         super().__init__()
         self.num_tasks = num_tasks

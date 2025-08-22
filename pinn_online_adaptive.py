@@ -2,9 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 AirSim + 自适应控制 + 线上 Meta-PINN（离线权重）
-- 只在 result/ 下保存图片，不保存 CSV
-- 特征按 --features 与离线一致，并用 x_scaler.npz 做标准化
-- 合入：残差喂自适应（防打架）/ OOD门控 / 限幅+率限制 / 稳定在线学习(Huber)
 """
 import os, time, math, argparse
 import numpy as np
@@ -16,43 +13,38 @@ from pathlib import Path
 from collections import deque
 
 from config import *  # UAV_mass, cx,cy,cz, cu,cv,cw, lamx,lamy,lamz
-from meta_pinn.model import MetaPINN  # 你的离线模型
+from meta_pinn.model import MetaPINN  
 
 HOVER_THROTTLE = 0.594
 G = 9.81
 RESULTS_DIR = Path("result")
 
-# ---------------- 小工具 ----------------
 def clip(x, lo, hi): return lo if x < lo else (hi if x > hi else x)
 
 # ---------------- 风况全集 ----------------
 PROFILES_ALL = {
-    "0mps":  {"tag":"0mps",  "kind":"const", "dir":(1,0,0), "mag":0.0},
-    "2.0mps":{"tag":"2.0mps","kind":"const", "dir":(1,0,0), "mag":2.0},
-    "4.2mps":{"tag":"4.2mps","kind":"const", "dir":(1,0,0), "mag":4.2},
-    "6.0mps":{"tag":"6.0mps","kind":"const", "dir":(1,0,0), "mag":6.0},
-    "8.5mps":{"tag":"8.5mps","kind":"const", "dir":(1,0,0), "mag":8.5},
-    "10.0mps":{"tag":"10.0mps","kind":"const", "dir":(1,0,0), "mag":10.0},
-    "12.1mps":{"tag":"12.1mps","kind":"const", "dir":(1,0,0), "mag":18},
-    "sinusoidal_0to8mps":  {"tag":"sinusoidal_0to8mps","kind":"sin","dir":(1,0,0),"mag_mean":4.0,"mag_amp":4.0,"freq_hz":0.33},
-    "sinusoidal_0to12mps": {"tag":"sinusoidal_0to12mps","kind":"sin","dir":(1,0,0),"mag_mean":6.0,"mag_amp":6.0,"freq_hz":0.25},
-    "gusty_12mps":{"tag":"gusty_12mps","kind":"gust","dir":(1,0,0),"mag":12.0,"noise_std":1.0}
+    "0mps":  {"tag":"0mps",  "kind":"const", "dir":(0,1,0), "mag":0.0},
+    "5mps":{"tag":"5mps","kind":"const", "dir":(0,1,0), "mag":5.0},
+    "10mps":{"tag":"10mps","kind":"const", "dir":(0,1,0), "mag":10.0},
+    "12mps":{"tag":"12mps","kind":"const", "dir":(0,1,0), "mag":12.0},
+    "13.5mps":{"tag":"13.5mps","kind":"const", "dir":(0,1,0), "mag":13.5},
+    "15mps":{"tag":"15mps","kind":"const", "dir":(0,1,0), "mag":15.0},
+    "sinusoidal_0to10mps":  {"tag":"sinusoidal_0to10mps","kind":"sin","dir":(0,1,0),"mag_mean":5.0,"mag_amp":5.0,"freq_hz":0.33},
+    "sinusoidal_0to18mps": {"tag":"sinusoidal_0to18mps","kind":"sin","dir":(0,1,0),"mag_mean":9.0,"mag_amp":9.0,"freq_hz":0.25}
 }
 
 WIND_CONDITIONS = {
     "0mps": "nowind",
-    "2.0mps": "10wind",
-    "4.2mps": "35wind",
-    "6.0mps": "40wind",
-    "8.5mps": "70wind",
-    "10.0mps": "50wind",
-    "12.1mps": "100wind",
-    "sinusoidal_0to12mps": "70p20sint",
-    "sinusoidal_0to8mps": "20wind",
-    "gusty_12mps": "30wind"
+    "5mps": "5wind",
+    "10mps": "10wind",
+    "12mps": "12wind",
+    "13.5mps": "13p5wind",
+    "15mps": "15wind",
+    "sinusoidal_0to10mps": "10sint",
+    "sinusoidal_0to18mps": "18sint"
 }
-TRAIN_CONDS = ["10wind", "20wind", "30wind", "40wind", "50wind", "nowind"]
-TEST_CONDS  = ["nowind", "10wind", "20wind", "30wind", "35wind", "40wind", "50wind", "70wind", "70p20sint", "100wind"]
+TRAIN_CONDS = ["nowind", "5wind", "10wind", "12wind", "13p5wind","10sint"]
+TEST_CONDS  = ["nowind", "5wind", "10wind", "12wind", "13p5wind", "15wind", "18sint"]
 
 # ---------------- 姿态/旋转工具 ----------------
 def quaternion_to_euler(x, y, z, w):
@@ -86,8 +78,8 @@ def quat_to_R(qw, qx, qy, qz):
     ], dtype=float)
     return R
 
-# ---------------- 自适应外环控制律（接收 fhat，做“去残差”的误差） ----------------
-def nn_adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t, fhat=None):
+# ---------------- 自适应外环控制律 ----------------
+def adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, t, fhat=None):
     """fhat: 世界系残差力 [fx,fy,fz]，若为 None 则视为零"""
     fx, fy, fz = (0.0, 0.0, 0.0) if (fhat is None) else (float(fhat[0]), float(fhat[1]), float(fhat[2]))
     x,y,z = pos[0][-1], pos[1][-1], pos[2][-1]
@@ -495,6 +487,36 @@ class SimpleFlightController:
             axes[1, i].legend(); axes[1, i].grid(True)
         plt.tight_layout()
         fig.savefig(out_dir / f"{base_name}_track.png"); plt.close(fig)
+       
+    @staticmethod
+    def _wrap_angle_rad(e):
+        # wrap到[-pi, pi]，避免359° vs 0°造成的巨大误差
+        return (e + np.pi) % (2*np.pi) - np.pi
+
+    def _print_avg_tracking_error(self, label: str):
+        # 位置误差
+        pos = np.array(self.data_log["p"], dtype=np.float32)       # [T,3]
+        des = np.array(self.data_log["p_d"], dtype=np.float32)     # [T,3]
+        e_pos = pos - des                                          # [T,3]
+        mae_xyz  = np.mean(np.abs(e_pos), axis=0)                  # [3]
+        mae_3d   = np.mean(np.linalg.norm(e_pos, axis=1))          # 标量
+        rmse_3d  = np.sqrt(np.mean(np.sum(e_pos**2, axis=1)))      # 标量
+
+        # 姿态误差（弧度），注意包角
+        att  = np.array(self.data_log["att"], dtype=np.float32)    # [T,3] rad
+        attd = np.array(self.data_log["att_d"], dtype=np.float32)  # [T,3] rad
+        e_att = att - attd
+        for k in range(3):
+            e_att[:, k] = self._wrap_angle_rad(e_att[:, k])
+        att_mae_deg = np.degrees(np.mean(np.abs(e_att), axis=0))   # [3] deg
+
+        print(
+            f"[Avg Tracking Error] {label} | "
+            f"Pos MAE XYZ (m)=({mae_xyz[0]:.3f}, {mae_xyz[1]:.3f}, {mae_xyz[2]:.3f}), "
+            f"3D-MAE={mae_3d:.3f} m, 3D-RMSE={rmse_3d:.3f} m | "
+            f"Att MAE (deg)=({att_mae_deg[0]:.2f}, {att_mae_deg[1]:.2f}, {att_mae_deg[2]:.2f})"
+        )
+
 
     def run_simulation(self, total_time=60.0, trajectory_func=None, profile=None,
                        trajectory_type="random", wind_tag=None):
@@ -540,7 +562,7 @@ class SimpleFlightController:
                 dz_prev = self.dhat[2]
 
                 # === 自适应控制（把 fhat 喂给自适应误差，避免并联打架）===
-                thr, r_des, p_des, y_des, self.dhat, self.jifen, (u_dot, v_dot, w_dot) = nn_adaptive_controller(
+                thr, r_des, p_des, y_des, self.dhat, self.jifen, (u_dot, v_dot, w_dot) = adaptive_controller(
                     self.pos_history, self.vel_history, self.att_history, self.ang_vel_history,
                     self.posd_history, self.attd_history, self.dhat, self.jifen, self.dt, self.simulation_time,
                     fhat=fhat
@@ -599,22 +621,9 @@ class SimpleFlightController:
         base = f"{vehicle}_{trajectory_type}_adaptive_{condition}"
         self._save_figures(RESULTS_DIR, base)
         print(f"[保存图片] {RESULTS_DIR / (base+'_traj3d.png')}")
+        self._print_avg_tracking_error(label=f"{trajectory_type} | {condition}")
 
-        # 运行结束后统计平均跟踪误差（RMSE）
-        try:
-            import numpy as np
-            # 假设主循环采集的数据变量为 p, p_d
-            if 'p' in locals() and 'p_d' in locals():
-                pos_arr = np.array(p)      # 实际轨迹 N x 3
-                des_arr = np.array(p_d)    # 期望轨迹 N x 3
-                if pos_arr.shape == des_arr.shape and pos_arr.shape[0] > 0:
-                    mse = np.mean((pos_arr - des_arr)**2)
-                    rmse = np.sqrt(mse)
-                    print(f"[平均跟踪误差] RMSE = {rmse:.4f} m")
-                else:
-                    print("[警告] 轨迹数据维度不匹配，无法计算跟踪误差。")
-        except Exception as e:
-            print(f"[误差统计异常] {e}")
+
 
 # ---------------- 轨迹 ----------------
 def test2(t):
@@ -651,15 +660,13 @@ def reset_to_home():
 def main():
     ap = argparse.ArgumentParser(description="AirSim adaptive + Meta-PINN (save figs only, robust online)")
     ap.add_argument('--mode', choices=['train','test'], default='test')
-    ap.add_argument('--idx', type=int, default=6)
+    ap.add_argument('--idx', type=int, default=0)
     ap.add_argument('--mp_load', type=str, default='saved_models/meta_pinn_offline/meta_pinn_last.pth',
                     help='离线 Meta-PINN 权重路径')
     ap.add_argument('--mp_scaler', type=str, default='saved_models/meta_pinn_offline/x_scaler.npz',
                     help='输入标准化 npz（x_mean/x_std）')
     ap.add_argument('--features', type=str, default='v,q,pwm',
                     help='与离线训练一致的特征列表，逗号分隔、顺序一致')
-    ap.add_argument('--no_meta', action='store_true')
-    ap.add_argument('--no_online', action='store_true')
     args = ap.parse_args()
 
     feature_keys = [s.strip() for s in args.features.split(',') if s.strip()]
@@ -703,6 +710,7 @@ def main():
     print("未指定参数，默认批量运行全部训练与测试风况（只在 result/ 产出图片）")
     for p,c in train_list:
         run_one(p, c, test3_random_spline_trajectory(), "random", 60.0)
+
     for p,c in test_list:
         run_one(p, c, test2, "fig8", 30.0)
 
