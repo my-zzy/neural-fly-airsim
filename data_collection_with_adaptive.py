@@ -164,17 +164,6 @@ class SimpleFlightController:
 
         print("SimpleFlightController initialized")
 
-    # def apply_wind_profile(self, profile, t):
-    #     d = np.array(profile["dir"], dtype=float); d = d/np.linalg.norm(d)
-    #     if profile["kind"] == "const":
-    #         mag = profile["mag"]
-    #     elif profile["kind"] == "sin":
-    #         mag = profile["mag_mean"] + profile["mag_amp"]*np.sin(2*np.pi*profile["freq_hz"]*t)
-    #     elif profile["kind"] == "gust":
-    #         mag = profile["mag"] + np.random.normal(0, profile.get("noise_std",1.0))
-    #     else:
-    #         mag = 0.0
-    #     self.client.simSetWind(airsim.Vector3r(*(d*mag)))
     def apply_wind_profile(self, profile, t):
         # 直接通过向量设置风场
         if profile["kind"] == "const":
@@ -404,9 +393,6 @@ class SimpleFlightController:
         print(f"飞行数据已保存 {out_csv}")
         self._save_figures(out_dir, base, data_log)
         print(f"飞行图像已保存")
-        #print(f"[图像保存] {out_dir / (base+'_traj2d.png')}")
-        #print(f"[图像保存] {out_dir / (base+'_ctrl.png')}")
-        #print(f"[图像保存] {out_dir / (base+'_track.png')}")
 
         return data_log
 
