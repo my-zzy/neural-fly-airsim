@@ -1,0 +1,311 @@
+#!/usr/bin/env python
+"""
+Flight Data Analysis and Visualization Script
+
+This script analyzes quadrotor flight data from CSV files in data_pinn/test/
+and creates comprehensive visualizations including:
+1. 2D trajectory plots (X-Y plane)
+2. 3D trajectory plots
+3. Heatmaps showing squared position errors
+
+The data contains columns:
+- p: actual position [x, y, z]
+- p_d: desired position [x_d, y_d, z_d]
+- t: time
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+import ast
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.colors import LogNorm
+import os
+
+def parse_position_data(position_str):
+    """Parse position string '[x, y, z]' to numpy array"""
+    try:
+        return np.array(ast.literal_eval(position_str))
+    except:
+        # Fallback parsing in case of formatting issues
+        clean_str = position_str.strip('[]').replace(' ', '')
+        return np.array([float(x) for x in clean_str.split(',')])
+
+def load_flight_data(csv_file):
+    """Load and process flight data from CSV file"""
+    df = pd.read_csv(csv_file)
+    
+    # Parse position and desired position data
+    positions = np.array([parse_position_data(p) for p in df['p']])
+    desired_positions = np.array([parse_position_data(p) for p in df['p_d']])
+    
+    # Extract time data
+    time = df['t'].values
+    
+    return {
+        'time': time,
+        'position': positions,
+        'desired_position': desired_positions,
+        'error': positions - desired_positions,
+        'squared_error': np.sum((positions - desired_positions)**2, axis=1),
+        'filename': Path(csv_file).stem
+    }
+
+def plot_2d_trajectories(flight_data_list, plots_dir):
+    """Create 2D trajectory plot (X-Y plane) for all datasets"""
+    plt.figure(figsize=(12, 10))
+    
+    colors = ['blue', 'red', 'green', 'orange', 'purple']
+    linestyles = ['-', '--', '-.', ':', '-']
+    
+    # Plot desired trajectory only once (using first dataset)
+    pos_d = flight_data_list[0]['desired_position']
+    plt.plot(pos_d[:, 0], pos_d[:, 1], 
+            color='black', linestyle=':', linewidth=2, 
+            label='Desired Trajectory', alpha=0.8, zorder=1)
+    
+    for i, data in enumerate(flight_data_list):
+        pos = data['position']
+        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        
+        color = colors[i % len(colors)]
+        linestyle = linestyles[i % len(linestyles)]
+        
+        # Plot actual trajectory
+        plt.plot(pos[:, 0], pos[:, 1], 
+                color=color, linestyle=linestyle, linewidth=2, 
+                label=f'{label}', alpha=0.8, zorder=2)
+        
+        # Mark start and end points
+        plt.scatter(pos[0, 0], pos[0, 1], color=color, marker='o', s=100, 
+                   edgecolor='black', linewidth=2, zorder=10)
+        plt.scatter(pos[-1, 0], pos[-1, 1], color=color, marker='s', s=100, 
+                   edgecolor='black', linewidth=2, zorder=10)
+    
+    plt.xlabel('X Position (m)', fontsize=12)
+    plt.ylabel('Y Position (m)', fontsize=12)
+    plt.title('2D Flight Trajectories Comparison (X-Y Plane)', fontsize=14, fontweight='bold')
+    plt.grid(True, alpha=0.3)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.axis('equal')
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, '2d_trajectories.png'), dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_3d_trajectories(flight_data_list, plots_dir):
+    """Create 3D trajectory plot for all datasets"""
+    fig = plt.figure(figsize=(15, 10))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    colors = ['blue', 'red', 'green', 'orange', 'purple']
+    linestyles = ['-', '--', '-.', ':', '-']
+    
+    # Plot desired trajectory only once (using first dataset)
+    pos_d = flight_data_list[0]['desired_position']
+    ax.plot(pos_d[:, 0], pos_d[:, 1], pos_d[:, 2], 
+           color='black', linestyle=':', linewidth=2, 
+           label='Desired Trajectory', alpha=0.8, zorder=1)
+    
+    for i, data in enumerate(flight_data_list):
+        pos = data['position']
+        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        
+        color = colors[i % len(colors)]
+        linestyle = linestyles[i % len(linestyles)]
+        
+        # Plot actual trajectory
+        ax.plot(pos[:, 0], pos[:, 1], pos[:, 2], 
+               color=color, linestyle=linestyle, linewidth=2, 
+               label=f'{label}', alpha=0.8, zorder=2)
+        
+        # Mark start and end points
+        ax.scatter(pos[0, 0], pos[0, 1], pos[0, 2], color=color, marker='o', s=100, 
+                  edgecolor='black', linewidth=2, zorder=10)
+        ax.scatter(pos[-1, 0], pos[-1, 1], pos[-1, 2], color=color, marker='s', s=100, 
+                  edgecolor='black', linewidth=2, zorder=10)
+    
+    ax.set_xlabel('X Position (m)', fontsize=12)
+    ax.set_ylabel('Y Position (m)', fontsize=12)
+    ax.set_zlabel('Z Position (m)', fontsize=12)
+    ax.set_title('3D Flight Trajectories Comparison', fontsize=14, fontweight='bold')
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    # Set equal aspect ratio
+    max_range = 0
+    for data in flight_data_list:
+        pos = data['position']
+        max_range = max(max_range, np.max(np.abs(pos)))
+    
+    ax.set_xlim(-max_range, max_range)
+    ax.set_ylim(-max_range, max_range)
+    ax.set_zlim(-max_range, 0)  # Z is typically negative (NED frame)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, '3d_trajectories.png'), dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_error_heatmaps(flight_data_list, plots_dir):
+    """Create heatmaps showing squared position errors over time"""
+    n_datasets = len(flight_data_list)
+    
+    # First pass: find global min/max for consistent color scaling
+    all_squared_errors = []
+    for data in flight_data_list:
+        errors = data['error']
+        squared_errors = np.sum(errors**2, axis=1)
+        all_squared_errors.extend(squared_errors)
+    
+    vmin = np.min(all_squared_errors)
+    vmax = np.max(all_squared_errors)
+    
+    # Create heatmap subplots (2x3 grid for 5 datasets + 1 empty)
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    axes = axes.flatten()
+    
+    # Individual heatmaps for each dataset with consistent scaling
+    scatters = []
+    for i, data in enumerate(flight_data_list):
+        if i >= 5:  # Limit to 5 datasets
+            break
+            
+        pos = data['position']
+        errors = data['error']
+        
+        # Use X-Y position as spatial coordinates and color by squared error
+        squared_errors = np.sum(errors**2, axis=1)
+        
+        ax = axes[i]
+        
+        # Create scatter plot colored by squared error with consistent scaling
+        scatter = ax.scatter(pos[:, 0], pos[:, 1], c=squared_errors, 
+                           cmap='RdYlGn_r', s=10, alpha=0.8, vmin=vmin, vmax=vmax)
+        scatters.append(scatter)
+        
+        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        ax.set_title(f'{label}\nSquared Position Error Heatmap', fontsize=11, fontweight='bold')
+        ax.set_xlabel('X Position (m)')
+        ax.set_ylabel('Y Position (m)')
+        ax.grid(True, alpha=0.3)
+        ax.axis('equal')
+    
+    # Remove the 6th subplot (empty one)
+    axes[5].remove()
+    
+    # Add a single colorbar for all heatmaps
+    # Create a new axis for the colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
+    fig.colorbar(scatters[0], cax=cbar_ax, label='Squared Error (m²)')
+    
+    # Adjust layout manually instead of tight_layout to avoid warning
+    plt.subplots_adjust(left=0.05, right=0.90, top=0.95, bottom=0.08, wspace=0.3, hspace=0.3)
+    plt.savefig(os.path.join(plots_dir, 'error_heatmaps.png'), dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_error_timeseries(flight_data_list, plots_dir):
+    """Create a separate plot for squared position error vs time"""
+    plt.figure(figsize=(12, 8))
+    
+    colors = ['blue', 'red', 'green', 'orange', 'purple']
+    
+    for i, data in enumerate(flight_data_list):
+        time = data['time']
+        squared_errors = data['squared_error']
+        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        
+        plt.plot(time, squared_errors, 
+                color=colors[i % len(colors)], 
+                linewidth=2, label=label, alpha=0.8)
+    
+    plt.title('Squared Position Error vs Time Comparison', fontsize=14, fontweight='bold')
+    plt.xlabel('Time (s)', fontsize=12)
+    plt.ylabel('Squared Error (m²)', fontsize=12)
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.yscale('log')  # Log scale for better visualization
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, 'error_timeseries.png'), dpi=300, bbox_inches='tight')
+    plt.show()
+
+def print_statistics(flight_data_list):
+    """Print statistical summary of flight performance"""
+    print("\n" + "="*80)
+    print("FLIGHT PERFORMANCE STATISTICS")
+    print("="*80)
+    
+    for data in flight_data_list:
+        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        errors = data['error']
+        squared_errors = data['squared_error']
+        
+        print(f"\n{label}:")
+        print(f"  Mean Squared Error (MSE):     {np.mean(squared_errors):.6f} m²")
+        print(f"  Root Mean Squared Error:      {np.sqrt(np.mean(squared_errors)):.6f} m")
+        print(f"  Maximum Error:                {np.sqrt(np.max(squared_errors)):.6f} m")
+        print(f"  Standard Deviation:           {np.std(np.sqrt(squared_errors)):.6f} m")
+        print(f"  Mean Absolute Error (X):      {np.mean(np.abs(errors[:, 0])):.6f} m")
+        print(f"  Mean Absolute Error (Y):      {np.mean(np.abs(errors[:, 1])):.6f} m")
+        print(f"  Mean Absolute Error (Z):      {np.mean(np.abs(errors[:, 2])):.6f} m")
+
+def main():
+    """Main function to load data and create all plots"""
+    # Path to test data directory
+    data_dir = Path("data_pinn/test")
+    
+    # Create plots directory if it doesn't exist
+    plots_dir = "plots"
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    if not data_dir.exists():
+        print(f"Error: Directory {data_dir} not found!")
+        return
+    
+    # Load all CSV files
+    csv_files = list(data_dir.glob("*.csv"))
+    
+    if not csv_files:
+        print(f"Error: No CSV files found in {data_dir}")
+        return
+    
+    print(f"Found {len(csv_files)} CSV files:")
+    for file in csv_files:
+        print(f"  - {file.name}")
+    
+    # Load all flight data
+    flight_data_list = []
+    for csv_file in csv_files:
+        try:
+            data = load_flight_data(csv_file)
+            flight_data_list.append(data)
+            print(f"Loaded {csv_file.name}: {len(data['time'])} data points")
+        except Exception as e:
+            print(f"Error loading {csv_file.name}: {e}")
+    
+    if not flight_data_list:
+        print("Error: No data could be loaded!")
+        return
+    
+    print(f"\nSuccessfully loaded {len(flight_data_list)} datasets")
+    print(f"Plots will be saved to: {os.path.abspath(plots_dir)}")
+    
+    # Create plots
+    print("\nGenerating 2D trajectory plot...")
+    plot_2d_trajectories(flight_data_list, plots_dir)
+    
+    print("Generating 3D trajectory plot...")
+    plot_3d_trajectories(flight_data_list, plots_dir)
+    
+    print("Generating error heatmaps...")
+    plot_error_heatmaps(flight_data_list, plots_dir)
+    
+    print("Generating error time series plot...")
+    plot_error_timeseries(flight_data_list, plots_dir)
+    
+    # Print statistics
+    print_statistics(flight_data_list)
+    
+    print(f"\nAll plots generated and saved to {plots_dir} folder successfully!")
+
+if __name__ == "__main__":
+    main()
