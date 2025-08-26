@@ -68,7 +68,7 @@ def plot_2d_trajectories(flight_data_list, plots_dir):
     
     for i, data in enumerate(flight_data_list):
         pos = data['position']
-        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        label = data['filename'].replace('simpleflight_fig8_', '').replace('_', ' ').title()
         
         color = colors[i % len(colors)]
         linestyle = linestyles[i % len(linestyles)]
@@ -110,7 +110,7 @@ def plot_3d_trajectories(flight_data_list, plots_dir):
     
     for i, data in enumerate(flight_data_list):
         pos = data['position']
-        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        label = data['filename'].replace('simpleflight_fig8_', '').replace('_', ' ').title()
         
         color = colors[i % len(colors)]
         linestyle = linestyles[i % len(linestyles)]
@@ -130,24 +130,115 @@ def plot_3d_trajectories(flight_data_list, plots_dir):
     ax.set_ylabel('Y Position (m)', fontsize=12)
     ax.set_zlabel('Z Position (m)', fontsize=12)
     ax.set_title('3D Flight Trajectories Comparison', fontsize=14, fontweight='bold')
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    # ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     
     # Set equal aspect ratio
-    max_range = 0
-    for data in flight_data_list:
-        pos = data['position']
-        max_range = max(max_range, np.max(np.abs(pos)))
+    # max_range = 0
+    # for data in flight_data_list:
+    #     pos = data['position']
+    #     max_range = max(max_range, np.max(np.abs(pos)))
     
-    ax.set_xlim(-max_range, max_range)
-    ax.set_ylim(-max_range, max_range)
-    ax.set_zlim(-max_range, 0)  # Z is typically negative (NED frame)
+    # ax.set_xlim(-max_range, max_range)
+    # ax.set_ylim(-max_range, max_range)
+    # ax.set_zlim(-max_range, 0)  # Z is typically negative (NED frame)
     
     plt.tight_layout()
     plt.savefig(os.path.join(plots_dir, '3d_trajectories.png'), dpi=300, bbox_inches='tight')
     plt.show()
 
 def plot_error_heatmaps(flight_data_list, plots_dir):
-    """Create heatmaps showing squared position errors over time"""
+    """Create heatmaps showing squared position errors over time - Two rows for two methods"""
+    n_datasets = len(flight_data_list)
+    
+    # Group data by method
+    methods_data = {}
+    for data in flight_data_list:
+        filename = data['filename']
+        # Extract method from filename (assuming format: simpleflight_fig8_METHOD_CONDITION)
+        parts = filename.split('_')
+        if len(parts) >= 3:
+            method = parts[2]  # adaptive, pid, nnadaptive, etc.
+            condition = '_'.join(parts[3:])  # wind condition
+            
+            if method not in methods_data:
+                methods_data[method] = []
+            methods_data[method].append((data, condition))
+    
+    # Sort methods for consistent ordering
+    method_names = sorted(methods_data.keys())
+    
+    if len(method_names) < 2:
+        print("Warning: Less than 2 methods found. Using original single-row layout.")
+        # Fall back to original function behavior
+        plot_error_heatmaps_original(flight_data_list, plots_dir)
+        return
+    
+    # First pass: find global min/max for consistent color scaling
+    all_squared_errors = []
+    for data in flight_data_list:
+        errors = data['error']
+        squared_errors = np.sum(errors**2, axis=1)
+        all_squared_errors.extend(squared_errors)
+    
+    vmin = np.min(all_squared_errors)
+    vmax = np.max(all_squared_errors)
+    
+    # Create figure with 2 rows and 7 columns
+    fig, axes = plt.subplots(2, 7, figsize=(24, 8))
+    
+    # Individual heatmaps for each method and condition
+    scatters = []
+    
+    # Plot first two methods (or repeat if only one method)
+    for row_idx, method in enumerate(method_names[:2]):
+        method_datasets = methods_data[method]
+        # Sort by condition name for consistent ordering
+        method_datasets.sort(key=lambda x: x[1])
+        
+        for col_idx in range(7):
+            ax = axes[row_idx, col_idx]
+            
+            if col_idx < len(method_datasets):
+                data, condition = method_datasets[col_idx]
+                pos = data['position']
+                errors = data['error']
+                
+                # Use X-Y position as spatial coordinates and color by squared error
+                squared_errors = np.sum(errors**2, axis=1)
+                
+                # Create scatter plot colored by squared error with consistent scaling
+                scatter = ax.scatter(pos[:, 0], pos[:, 1], c=squared_errors, 
+                                   cmap='RdYlGn_r', s=8, alpha=0.8, vmin=vmin, vmax=vmax)
+                scatters.append(scatter)
+                
+                ax.set_title(f'{method.upper()}\n{condition}', fontsize=10, fontweight='bold')
+                ax.set_xlabel('X (m)', fontsize=8)
+                ax.set_ylabel('Y (m)', fontsize=8)
+                ax.grid(True, alpha=0.3)
+                ax.axis('equal')
+                ax.tick_params(axis='both', which='major', labelsize=6)
+            else:
+                # Hide empty subplots
+                ax.set_visible(False)
+    
+    # Add a single colorbar for all heatmaps
+    # Create a new axis for the colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7])  # [left, bottom, width, height]
+    if scatters:
+        cbar = fig.colorbar(scatters[0], cax=cbar_ax, label='Squared Error (m²)')
+        cbar.ax.tick_params(labelsize=8)
+    
+    # Add overall title
+    fig.suptitle('Squared Position Error Heatmaps: Method Comparison Across Wind Conditions', 
+                 fontsize=14, fontweight='bold', y=0.95)
+    
+    # Adjust layout
+    plt.subplots_adjust(left=0.05, right=0.90, top=0.88, bottom=0.12, wspace=0.3, hspace=0.4)
+    plt.savefig(os.path.join(plots_dir, 'error_heatmaps_comparison.png'), dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_error_heatmaps_original(flight_data_list, plots_dir):
+    """Original heatmap function for fallback"""
     n_datasets = len(flight_data_list)
     
     # First pass: find global min/max for consistent color scaling
@@ -167,7 +258,7 @@ def plot_error_heatmaps(flight_data_list, plots_dir):
     # Individual heatmaps for each dataset with consistent scaling
     scatters = []
     for i, data in enumerate(flight_data_list):
-        if i >= 5:  # Limit to 5 datasets
+        if i >= 6:
             break
             
         pos = data['position']
@@ -183,20 +274,22 @@ def plot_error_heatmaps(flight_data_list, plots_dir):
                            cmap='RdYlGn_r', s=10, alpha=0.8, vmin=vmin, vmax=vmax)
         scatters.append(scatter)
         
-        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        label = data['filename'].replace('simpleflight_fig8_', '').replace('_', ' ').title()
         ax.set_title(f'{label}\nSquared Position Error Heatmap', fontsize=11, fontweight='bold')
         ax.set_xlabel('X Position (m)')
         ax.set_ylabel('Y Position (m)')
         ax.grid(True, alpha=0.3)
         ax.axis('equal')
     
-    # Remove the 6th subplot (empty one)
-    axes[5].remove()
+    # Hide unused subplots
+    for i in range(len(flight_data_list), len(axes)):
+        axes[i].set_visible(False)
     
     # Add a single colorbar for all heatmaps
     # Create a new axis for the colorbar
     cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
-    fig.colorbar(scatters[0], cax=cbar_ax, label='Squared Error (m²)')
+    if scatters:
+        fig.colorbar(scatters[0], cax=cbar_ax, label='Squared Error (m²)')
     
     # Adjust layout manually instead of tight_layout to avoid warning
     plt.subplots_adjust(left=0.05, right=0.90, top=0.95, bottom=0.08, wspace=0.3, hspace=0.3)
@@ -212,7 +305,7 @@ def plot_error_timeseries(flight_data_list, plots_dir):
     for i, data in enumerate(flight_data_list):
         time = data['time']
         squared_errors = data['squared_error']
-        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        label = data['filename'].replace('simpleflight_fig8_', '').replace('_', ' ').title()
         
         plt.plot(time, squared_errors, 
                 color=colors[i % len(colors)], 
@@ -235,7 +328,7 @@ def print_statistics(flight_data_list):
     print("="*80)
     
     for data in flight_data_list:
-        label = data['filename'].replace('simpleflight_fig8_adaptive_', '').replace('_', ' ').title()
+        label = data['filename'].replace('simpleflight_fig8_', '').replace('_', ' ').title()
         errors = data['error']
         squared_errors = data['squared_error']
         
@@ -251,10 +344,10 @@ def print_statistics(flight_data_list):
 def main():
     """Main function to load data and create all plots"""
     # Path to test data directory
-    data_dir = Path("data_pinn/test")
+    data_dir = Path("data_baseline/test")
     
     # Create plots directory if it doesn't exist
-    plots_dir = "plots"
+    plots_dir = "plots/0826"
     os.makedirs(plots_dir, exist_ok=True)
     
     if not data_dir.exists():
