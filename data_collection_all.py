@@ -209,6 +209,7 @@ class AdaptiveNeuralNetwork(nn.Module):
     Only the last layer parameters are updated during flight.
     """
     def __init__(self, input_dim=12, hidden_dim=64, output_dim=3):
+        super().__init__()
         self.hidden_layers = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
@@ -326,7 +327,7 @@ def nn_adaptive_controller(pos, vel, att, ang_vel, posd, attd, dhat, jifen, dt, 
             ], dtype=torch.float32).unsqueeze(0)
             
             # Compute loss and update only the last layer
-            loss = torch.mse_loss(adaptive_pred, target_adaptive)
+            loss = torch.nn.functional.mse_loss(adaptive_pred, target_adaptive)
             loss.backward()
             optimizer.step()
             

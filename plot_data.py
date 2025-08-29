@@ -181,16 +181,29 @@ def plot_error_heatmaps(flight_data_list, plots_dir):
         all_squared_errors.extend(squared_errors)
     
     vmin = np.min(all_squared_errors)
-    vmax = np.max(all_squared_errors)
+    vmax_original = np.max(all_squared_errors)
     
-    # Create figure with 2 rows and 7 columns
-    fig, axes = plt.subplots(2, 7, figsize=(24, 8))
+    # Set a threshold for color saturation (adjust this value based on your data)
+    # You can experiment with different percentiles or fixed values
+    error_threshold = np.percentile(all_squared_errors, 95)  # 95th percentile
+    # Alternative: use a fixed threshold, e.g., error_threshold = 0.1
+    
+    vmax = error_threshold
+    print(f"Color scale: vmin={vmin:.6f}, vmax={vmax:.6f} (threshold), original_max={vmax_original:.6f}")
+    
+    # Create figure with 3 rows and 7 columns (accommodate up to 3 methods)
+    num_rows = min(3, len(method_names))
+    fig, axes = plt.subplots(num_rows, 7, figsize=(24, 4 * num_rows))
+    
+    # Handle single row case
+    if num_rows == 1:
+        axes = axes.reshape(1, -1)
     
     # Individual heatmaps for each method and condition
     scatters = []
     
-    # Plot first two methods (or repeat if only one method)
-    for row_idx, method in enumerate(method_names[:2]):
+    # Plot all available methods (up to 3)
+    for row_idx, method in enumerate(method_names[:3]):
         method_datasets = methods_data[method]
         # Sort by condition name for consistent ordering
         method_datasets.sort(key=lambda x: x[1])
@@ -222,18 +235,29 @@ def plot_error_heatmaps(flight_data_list, plots_dir):
                 ax.set_visible(False)
     
     # Add a single colorbar for all heatmaps
-    # Create a new axis for the colorbar
-    cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7])  # [left, bottom, width, height]
+    # Create a new axis for the colorbar (adjust position based on number of rows)
+    if num_rows == 1:
+        cbar_ax = fig.add_axes([0.92, 0.25, 0.015, 0.5])
+    elif num_rows == 2:
+        cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
+    else:  # 3 rows
+        cbar_ax = fig.add_axes([0.92, 0.10, 0.015, 0.8])
+    
     if scatters:
-        cbar = fig.colorbar(scatters[0], cax=cbar_ax, label='Squared Error (m²)')
+        cbar = fig.colorbar(scatters[0], cax=cbar_ax, label=f'Squared Error (m²) [clipped at {vmax:.3f}]')
         cbar.ax.tick_params(labelsize=8)
     
     # Add overall title
     fig.suptitle('Squared Position Error Heatmaps: Method Comparison Across Wind Conditions', 
                  fontsize=14, fontweight='bold', y=0.95)
     
-    # Adjust layout
-    plt.subplots_adjust(left=0.05, right=0.90, top=0.88, bottom=0.12, wspace=0.3, hspace=0.4)
+    # Adjust layout based on number of rows
+    if num_rows == 1:
+        plt.subplots_adjust(left=0.05, right=0.90, top=0.85, bottom=0.15, wspace=0.3, hspace=0.4)
+    elif num_rows == 2:
+        plt.subplots_adjust(left=0.05, right=0.90, top=0.88, bottom=0.12, wspace=0.3, hspace=0.4)
+    else:  # 3 rows
+        plt.subplots_adjust(left=0.05, right=0.90, top=0.92, bottom=0.08, wspace=0.3, hspace=0.4)
     plt.savefig(os.path.join(plots_dir, 'error_heatmaps_comparison.png'), dpi=300, bbox_inches='tight')
     plt.show()
 
@@ -347,7 +371,7 @@ def main():
     data_dir = Path("data_baseline/test")
     
     # Create plots directory if it doesn't exist
-    plots_dir = "plots/0826"
+    plots_dir = "plots/0829"
     os.makedirs(plots_dir, exist_ok=True)
     
     if not data_dir.exists():
@@ -383,17 +407,17 @@ def main():
     print(f"Plots will be saved to: {os.path.abspath(plots_dir)}")
     
     # Create plots
-    print("\nGenerating 2D trajectory plot...")
-    plot_2d_trajectories(flight_data_list, plots_dir)
+    # print("\nGenerating 2D trajectory plot...")
+    # plot_2d_trajectories(flight_data_list, plots_dir)
     
-    print("Generating 3D trajectory plot...")
-    plot_3d_trajectories(flight_data_list, plots_dir)
+    # print("Generating 3D trajectory plot...")
+    # plot_3d_trajectories(flight_data_list, plots_dir)
     
     print("Generating error heatmaps...")
     plot_error_heatmaps(flight_data_list, plots_dir)
     
-    print("Generating error time series plot...")
-    plot_error_timeseries(flight_data_list, plots_dir)
+    # print("Generating error time series plot...")
+    # plot_error_timeseries(flight_data_list, plots_dir)
     
     # Print statistics
     print_statistics(flight_data_list)

@@ -3,7 +3,7 @@
 """
 AirSim + 自适应控制 + 线上 Meta-PINN（离线权重）
 """
-import os, time, math, argparse
+import os, time, math, argparse, csv
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -339,7 +339,7 @@ class SimpleFlightController:
         self.online_learn = online_learn
         self.feature_keys = list(feature_keys)
 
-        self.data_log = {k: [] for k in ["t","p","p_d","v","v_d","q","R","w","att","att_d","cmd"]}
+        self.data_log = {k: [] for k in ["t","p","p_d","v","v_d","q","R","w","att","att_d","cmd","T_sp","q_sp","hover_throttle","fa","pwm"]}
 
         print(f"SimpleFlightController initialized | features={self.feature_keys}")
 
@@ -422,7 +422,7 @@ class SimpleFlightController:
         )
 
     def _log_for_fig(self, t, cur_pos, des_pos, cur_vel, v_d, cur_quat, cur_R, cur_ang_vel, cur_att,
-                     des_att, thr, r_des, p_des, y_des):
+                     des_att, thr, r_des, p_des, y_des, q_sp=None, fa_obs=None):
         self.data_log["t"].append(t)
         self.data_log["p"].append(cur_pos[:])
         self.data_log["p_d"].append(des_pos[:])
@@ -435,6 +435,20 @@ class SimpleFlightController:
         self.data_log["att"].append(cur_att_plot)
         self.data_log["att_d"].append([r_des, p_des, y_des])
         self.data_log["cmd"].append([thr, r_des, p_des, y_des])
+        
+        # Additional data for CSV export (matching data_collection_all.py format)
+        self.data_log["T_sp"].append([thr])
+        self.data_log["q_sp"].append(q_sp if q_sp is not None else [1.0, 0.0, 0.0, 0.0])
+        self.data_log["hover_throttle"].append([self.hover_throttle])
+        self.data_log["fa"].append(fa_obs.tolist() if fa_obs is not None else [0.0, 0.0, 0.0])
+        
+        # Get rotor speeds
+        try:
+            rs = self.client.getRotorStates()
+            pwm_speeds = [rs.rotors[i]['speed'] for i in range(4)]
+        except Exception:
+            pwm_speeds = [0.0, 0.0, 0.0, 0.0]
+        self.data_log["pwm"].append(pwm_speeds)
 
     def _save_figures(self, out_dir: Path, base_name: str):
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -488,6 +502,33 @@ class SimpleFlightController:
         plt.tight_layout()
         fig.savefig(out_dir / f"{base_name}_track.png"); plt.close(fig)
        
+    def _save_csv(self, out_dir: Path, base_name: str):
+        """Save flight data to CSV file in the same format as data_collection_all.py"""
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_csv = out_dir / f"{base_name}.csv"
+        
+        with open(out_csv, "w", newline="") as f:
+            wr = csv.writer(f)
+            wr.writerow(["idx","t","p","p_d","v","v_d","q","R","w","T_sp","q_sp","hover_throttle","fa","pwm"])
+            for i in range(len(self.data_log["t"])):
+                wr.writerow([
+                    i,
+                    f"{self.data_log['t'][i]:.14g}",
+                    str(self.data_log['p'][i]),
+                    str(self.data_log['p_d'][i]),
+                    str(self.data_log['v'][i]),
+                    str(self.data_log['v_d'][i]),
+                    str(self.data_log['q'][i]),
+                    str(self.data_log['R'][i]),
+                    str(self.data_log['w'][i]),
+                    str(self.data_log['T_sp'][i]),
+                    str(self.data_log['q_sp'][i]),
+                    str(self.data_log['hover_throttle'][i]),
+                    str(self.data_log['fa'][i]),
+                    str(self.data_log['pwm'][i]),
+                ])
+        print(f"[CSV保存] {out_csv}")
+
     @staticmethod
     def _wrap_angle_rad(e):
         # wrap到[-pi, pi]，避免359° vs 0°造成的巨大误差
@@ -586,6 +627,7 @@ class SimpleFlightController:
                 self.send_control_to_airsim(thr, r_des, p_des, y_des)
 
                 # === 在线学习目标：fa_obs = m a - thrust_world - g ===
+                fa_obs = None  # Initialize fa_obs
                 if self.online_learn and self.prev_vel is not None:
                     #a_world = (np.array(cur_vel) - np.array(self.prev_vel))/self.dt
                     # --- 一阶低通（fc≈4Hz） ---
@@ -604,7 +646,7 @@ class SimpleFlightController:
 
                 # === 仅为出图记录 ===
                 self._log_for_fig(self.simulation_time, cur_pos, des_pos, cur_vel, v_d, cur_quat, cur_R,
-                                  cur_ang_vel, cur_att, [r_des, p_des, y_des], thr, r_des, p_des, y_des)
+                                  cur_ang_vel, cur_att, [r_des, p_des, y_des], thr, r_des, p_des, y_des, q_sp, fa_obs)
 
             self.prev_vel = cur_vel[:]
             self.prev_posd = des_pos[:]
@@ -618,8 +660,9 @@ class SimpleFlightController:
 
         vehicle = "simpleflight"
         condition = wind_tag if wind_tag else "nowind"
-        base = f"{vehicle}_{trajectory_type}_adaptive_{condition}"
+        base = f"{vehicle}_{trajectory_type}_metapinn_{condition}"
         self._save_figures(RESULTS_DIR, base)
+        self._save_csv(RESULTS_DIR, base)
         print(f"[保存图片] {RESULTS_DIR / (base+'_traj3d.png')}")
         self._print_avg_tracking_error(label=f"{trajectory_type} | {condition}")
 
@@ -667,6 +710,8 @@ def main():
                     help='输入标准化 npz（x_mean/x_std）')
     ap.add_argument('--features', type=str, default='v,q,pwm',
                     help='与离线训练一致的特征列表，逗号分隔、顺序一致')
+    ap.add_argument('--no_meta', action='store_true', help='禁用 Meta-PINN 预测')
+    ap.add_argument('--no_online', action='store_true', help='禁用在线学习')
     args = ap.parse_args()
 
     feature_keys = [s.strip() for s in args.features.split(',') if s.strip()]
@@ -708,8 +753,8 @@ def main():
         return
 
     print("未指定参数，默认批量运行全部训练与测试风况（只在 result/ 产出图片）")
-    for p,c in train_list:
-        run_one(p, c, test3_random_spline_trajectory(), "random", 60.0)
+    # for p,c in train_list:
+    #     run_one(p, c, test3_random_spline_trajectory(), "random", 60.0)
 
     for p,c in test_list:
         run_one(p, c, test2, "fig8", 30.0)
