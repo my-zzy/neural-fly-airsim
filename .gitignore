@@ -2,7 +2,6 @@ __pycache__
 .vscode
 nerual-fly-simulink/slprj
 logs_random_profiles
-result
 result_pinn_online
 logs_test_fig8
 ablation.py
