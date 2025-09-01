@@ -150,6 +150,18 @@ def plot_error_heatmaps(flight_data_list, plots_dir):
     """Create heatmaps showing squared position errors over time - Two rows for two methods"""
     n_datasets = len(flight_data_list)
     
+    # Define the order of columns (wind conditions) - EDIT THIS ARRAY TO CHANGE ORDER
+    # You can reorder, add, or remove conditions as needed
+    column_order = [
+        'nowind',
+        '5wind', 
+        '10wind',
+        '12wind',
+        '13p5wind',
+        '15wind',
+        '18sint'
+    ]
+    
     # Group data by method
     methods_data = {}
     for data in flight_data_list:
@@ -191,9 +203,12 @@ def plot_error_heatmaps(flight_data_list, plots_dir):
     vmax = error_threshold
     print(f"Color scale: vmin={vmin:.6f}, vmax={vmax:.6f} (threshold), original_max={vmax_original:.6f}")
     
-    # Create figure with 3 rows and 7 columns (accommodate up to 3 methods)
-    num_rows = min(3, len(method_names))
-    fig, axes = plt.subplots(num_rows, 7, figsize=(24, 4 * num_rows))
+    # Create figure with 4 rows and 7 columns (accommodate up to 4 methods)
+    # Add extra height for title to prevent overlapping
+    num_rows = min(4, len(method_names))
+    base_height = 4 * num_rows
+    title_height = 1.5  # Extra space for title
+    fig, axes = plt.subplots(num_rows, 7, figsize=(24, base_height + title_height))
     
     # Handle single row case
     if num_rows == 1:
@@ -202,11 +217,24 @@ def plot_error_heatmaps(flight_data_list, plots_dir):
     # Individual heatmaps for each method and condition
     scatters = []
     
-    # Plot all available methods (up to 3)
-    for row_idx, method in enumerate(method_names[:3]):
+    # Plot all available methods (up to 4)
+    for row_idx, method in enumerate(method_names[:4]):
         method_datasets = methods_data[method]
-        # Sort by condition name for consistent ordering
-        method_datasets.sort(key=lambda x: x[1])
+        
+        # Custom sorting based on column_order array
+        def sort_by_condition_order(item):
+            data, condition = item
+            try:
+                # Return the index in column_order for sorting
+                return column_order.index(condition)
+            except ValueError:
+                # If condition not in column_order, put it at the end
+                print(f'{condition} not found')
+                return len(column_order)
+        
+        method_datasets.sort(key=sort_by_condition_order)
+        print(f'Method: {method}')
+        print(f'Sorted conditions: {[condition for data, condition in method_datasets]}')
         
         for col_idx in range(7):
             ax = axes[row_idx, col_idx]
@@ -240,24 +268,28 @@ def plot_error_heatmaps(flight_data_list, plots_dir):
         cbar_ax = fig.add_axes([0.92, 0.25, 0.015, 0.5])
     elif num_rows == 2:
         cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
-    else:  # 3 rows
+    elif num_rows == 3:
         cbar_ax = fig.add_axes([0.92, 0.10, 0.015, 0.8])
+    else:  # 4 rows
+        cbar_ax = fig.add_axes([0.92, 0.08, 0.015, 0.84])
     
     if scatters:
         cbar = fig.colorbar(scatters[0], cax=cbar_ax, label=f'Squared Error (m²) [clipped at {vmax:.3f}]')
         cbar.ax.tick_params(labelsize=8)
     
-    # Add overall title
+    # Add overall title with more space
     fig.suptitle('Squared Position Error Heatmaps: Method Comparison Across Wind Conditions', 
-                 fontsize=14, fontweight='bold', y=0.95)
+                 fontsize=14, fontweight='bold', y=0.97)
     
-    # Adjust layout based on number of rows
+    # Adjust layout based on number of rows - with more top space for title
     if num_rows == 1:
-        plt.subplots_adjust(left=0.05, right=0.90, top=0.85, bottom=0.15, wspace=0.3, hspace=0.4)
+        plt.subplots_adjust(left=0.05, right=0.90, top=0.80, bottom=0.15, wspace=0.3, hspace=0.4)
     elif num_rows == 2:
-        plt.subplots_adjust(left=0.05, right=0.90, top=0.88, bottom=0.12, wspace=0.3, hspace=0.4)
-    else:  # 3 rows
-        plt.subplots_adjust(left=0.05, right=0.90, top=0.92, bottom=0.08, wspace=0.3, hspace=0.4)
+        plt.subplots_adjust(left=0.05, right=0.90, top=0.85, bottom=0.12, wspace=0.3, hspace=0.4)
+    elif num_rows == 3:
+        plt.subplots_adjust(left=0.05, right=0.90, top=0.88, bottom=0.08, wspace=0.3, hspace=0.4)
+    else:  # 4 rows
+        plt.subplots_adjust(left=0.05, right=0.90, top=0.90, bottom=0.06, wspace=0.3, hspace=0.4)
     plt.savefig(os.path.join(plots_dir, 'error_heatmaps_comparison.png'), dpi=300, bbox_inches='tight')
     plt.show()
 
@@ -420,7 +452,7 @@ def main():
     # plot_error_timeseries(flight_data_list, plots_dir)
     
     # Print statistics
-    print_statistics(flight_data_list)
+    # print_statistics(flight_data_list)
     
     print(f"\nAll plots generated and saved to {plots_dir} folder successfully!")
 
