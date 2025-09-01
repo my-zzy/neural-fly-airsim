@@ -38,7 +38,7 @@ TEST_CONDS  = ["nowind", "5wind", "10wind", "12wind", "13p5wind", "15wind", "18s
 
 # 输出目录
 OUT_DIR_TRAIN = Path("data_baseline/train")
-OUT_DIR_TEST  = Path("data_baseline/test")
+OUT_DIR_TEST  = Path("data_baseline/test0901")
 # OUT_DIR_TRAIN = Path("train_wind")
 # OUT_DIR_TEST = Path("test_wind")
 
@@ -745,7 +745,7 @@ def main():
             print("可选测试风况：")
             for i,(p,c) in enumerate(items): print(f"[{i}] {p['tag']} -> {c}")
             i = max(0, min(args.idx, len(items)-1))
-            run_one(items[i][0], items[i][1], test2, "fig8", 30.0, args.method)
+            run_one(items[i][0], items[i][1], test2, "fig8", 60.0, args.method)
         return
 
     elif args.mode is not None and args.idx is None:
@@ -759,7 +759,7 @@ def main():
             print(f"运行所有测试风况 ({len(test_list)} 个) 使用 {args.method} 方法:")
             for i, (p, c) in enumerate(test_list):
                 print(f"[{i+1}/{len(test_list)}] 运行测试风况: {p['tag']} -> {c}")
-                run_one(p, c, test2, "fig8", 30.0, args.method)
+                run_one(p, c, test2, "fig8", 60.0, args.method)
         return
 
     # 默认：先全量训练，再全量测试（每组都会复位）
@@ -767,7 +767,7 @@ def main():
     for p,c in train_list:
         run_one(p, c, test3_random_spline_trajectory(), "random", 60.0, args.method)  # 训练每组1分钟
     for p,c in test_list:
-        run_one(p, c, test2, "fig8", 30.0, args.method)  # 测试每组0.5分钟
+        run_one(p, c, test2, "fig8", 60.0, args.method)  # 测试每组1分钟
 
 if __name__ == "__main__":
     try:

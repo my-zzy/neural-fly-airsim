@@ -400,10 +400,10 @@ def print_statistics(flight_data_list):
 def main():
     """Main function to load data and create all plots"""
     # Path to test data directory
-    data_dir = Path("data_baseline/test")
+    data_dir = Path("data_baseline/test0901")
     
     # Create plots directory if it doesn't exist
-    plots_dir = "plots/0829"
+    plots_dir = "plots/0901"
     os.makedirs(plots_dir, exist_ok=True)
     
     if not data_dir.exists():
