@@ -20,7 +20,9 @@ PROFILES_ALL = {
     "13.5mps":{"tag":"13.5mps","kind":"const", "dir":(0,1,0), "mag":13.5},
     "15mps":{"tag":"15mps","kind":"const", "dir":(0,1,0), "mag":15.0},
     "sinusoidal_0to10mps":  {"tag":"sinusoidal_0to10mps","kind":"sin","dir":(0,1,0),"mag_mean":5.0,"mag_amp":5.0,"freq_hz":0.33},
-    "sinusoidal_0to18mps": {"tag":"sinusoidal_0to18mps","kind":"sin","dir":(0,1,0),"mag_mean":9.0,"mag_amp":9.0,"freq_hz":0.25}
+    "sinusoidal_0to18mps": {"tag":"sinusoidal_0to18mps","kind":"sin","dir":(0,1,0),"mag_mean":9.0,"mag_amp":9.0,"freq_hz":0.25},
+    "ou15": {"tag":"ou15", "kind":"ou3d","mean":(0,15,0), "sigma":(1.5,1.5,0.5), "tau":(2.0,2.0,3.0)},
+    "gustbursts": {"tag":"gustbursts","kind":"gust","dir":(0,1,0),"base":12.0,"amp":6.0,"duration":3.0,"period":2.0},   
 }
 
 WIND_CONDITIONS = {
@@ -31,14 +33,16 @@ WIND_CONDITIONS = {
     "13.5mps": "13p5wind",
     "15mps": "15wind",
     "sinusoidal_0to10mps": "10sint",
-    "sinusoidal_0to18mps": "18sint"
+    "sinusoidal_0to18mps": "18sint",
+    "gustbursts":"gusts",
+    "ou15":"ou15"
 }
 TRAIN_CONDS = ["nowind", "5wind", "10wind", "12wind", "13p5wind","10sint"]
-TEST_CONDS  = ["nowind", "5wind", "10wind", "12wind", "13p5wind", "15wind", "18sint"]
+TEST_CONDS  = ["nowind", "5wind", "10wind", "12wind", "13p5wind", "15wind", "10sint","18sint","gusts","ou15"]
 
 # 输出目录
-OUT_DIR_TRAIN = Path("data_baseline/train")
-OUT_DIR_TEST  = Path("data_baseline/test0901")
+OUT_DIR_TRAIN = Path("logs_random_profiles")
+OUT_DIR_TEST  = Path("data_baseline/test0903")
 # OUT_DIR_TRAIN = Path("train_wind")
 # OUT_DIR_TEST = Path("test_wind")
 
@@ -411,24 +415,68 @@ class SimpleFlightController:
 
         print("SimpleFlightController initialized")
 
-    def apply_wind_profile(self, profile, t):
-        # 直接通过向量设置风场
-        if profile["kind"] == "const":
+    # def apply_wind_profile(self, profile, t):
+    #     # 直接通过向量设置风场
+    #     if profile["kind"] == "const":
+    #         mag = profile["mag"]
+    #     elif profile["kind"] == "sin":
+    #         mag = profile["mag_mean"] + profile["mag_amp"]*np.sin(2*np.pi*profile["freq_hz"]*t)
+    #     elif profile["kind"] == "gust":
+    #         mag = profile["mag"] + np.random.normal(0, profile.get("noise_std",1.0))
+    #     else:
+    #         mag = 0.0
+    #     # 这里假设风向是世界坐标系下的 (X, Y, Z)
+    #     X = profile["dir"][0] * mag
+    #     Y = profile["dir"][1] * mag
+    #     Z = profile["dir"][2] * mag
+    #     wind = airsim.Vector3r(X, Y, Z)
+    #     self.client.simSetWind(wind)
+    #     #print(f"[风场设置] t={t:.2f}s | tag={profile['tag']} | wind=({X:.2f}, {Y:.2f}, {Z:.2f})")
+    def apply_wind_profile(self, profile, t, dt=0.02):
+        """
+        根据 profile["kind"] 设置风场
+        支持: const / sin / gustbursts / ou3d
+        """
+        kind = profile["kind"]
+
+        if kind == "const":
             mag = profile["mag"]
-        elif profile["kind"] == "sin":
-            mag = profile["mag_mean"] + profile["mag_amp"]*np.sin(2*np.pi*profile["freq_hz"]*t)
-        elif profile["kind"] == "gust":
-            mag = profile["mag"] + np.random.normal(0, profile.get("noise_std",1.0))
+
+        elif kind == "sin":
+            mag = profile["mag_mean"] + profile["mag_amp"] * np.sin(2*np.pi*profile["freq_hz"]*t)
+       
+        elif kind == "gustbursts":
+            base, amp, T, P = profile["base"], profile["amp"], profile["duration"], profile["period"]
+            in_burst = (t % P) < T
+            mag = base + (amp if in_burst else 0.0)
+
+        elif kind == "ou3d":
+            # Ornstein–Uhlenbeck 随机过程（类湍流）
+            if not hasattr(self, "_ou_state"):
+                self._ou_state = np.array(profile["mean"], dtype=float)
+
+            mu   = np.array(profile["mean"], dtype=float)
+            tau  = np.array(profile["tau"],  dtype=float)
+            sig  = np.array(profile["sigma"],dtype=float)
+
+            dW = np.random.normal(size=3)
+            self._ou_state += (mu - self._ou_state) * (dt / tau) + np.sqrt(2.0*dt / tau) * sig * dW
+            wind_vec = self._ou_state
+            X, Y, Z = wind_vec.tolist()
+            wind = airsim.Vector3r(X, Y, Z)
+            self.client.simSetWind(wind)
+            return
+
         else:
             mag = 0.0
-        # 这里假设风向是世界坐标系下的 (X, Y, Z)
+
+        # 通用 const/sin/gust 输出
         X = profile["dir"][0] * mag
         Y = profile["dir"][1] * mag
         Z = profile["dir"][2] * mag
         wind = airsim.Vector3r(X, Y, Z)
         self.client.simSetWind(wind)
-        #print(f"[风场设置] t={t:.2f}s | tag={profile['tag']} | wind=({X:.2f}, {Y:.2f}, {Z:.2f})")
-  
+
     def get_state(self):
         state = self.client.getMultirotorState()
         pos = state.kinematics_estimated.position
@@ -664,12 +712,24 @@ class SimpleFlightController:
         return data_log
 
 # =============== 轨迹 ===============
-def test2(t):
-    """8字轨迹（XY 平面）；Z 固定高度"""
+def fig8(t):
     x = 10.0*math.sin(0.5*t)
     y = 10.0*math.sin(0.5*t)*math.cos(0.5*t)
-    # z = -5.0
-    z = -10.0-2*t
+    z = -10.0 - 2.0*t
+    yaw = 0.0
+    return x,y,z,yaw
+
+def ellipse(t):
+    x = 8.0*math.cos(0.5*t)
+    y = 15.0*math.sin(0.5*t)
+    z = -10.0 - 2.0*t
+    yaw = 0.0
+    return x,y,z,yaw
+
+def circle(t):
+    x = 5.0*math.cos(0.5*t)
+    y = 5.0*math.sin(0.5*t)
+    z = -10.0 - 2.0*t
     yaw = 0.0
     return x,y,z,yaw
 
@@ -709,6 +769,7 @@ def main():
     parser = argparse.ArgumentParser(description="AirSim adaptive control batch runner")
     parser.add_argument('--mode', choices=['train','test'], default=None, help='train or test (默认全量批跑)')
     parser.add_argument('--idx', type=int, default=None, help='指定索引跑单个风况')
+    parser.add_argument('--traj', choices=['fig8','circle','ellipse'], default='fig8')
     parser.add_argument('--method', choices=['adaptive','pid','nnadaptive'], default='adaptive', help='控制方法选择: adaptive, pid 或 nnadaptive')
     args = parser.parse_args()
 
@@ -744,8 +805,12 @@ def main():
             items = test_list
             print("可选测试风况：")
             for i,(p,c) in enumerate(items): print(f"[{i}] {p['tag']} -> {c}")
-            i = max(0, min(args.idx, len(items)-1))
-            run_one(items[i][0], items[i][1], test2, "fig8", 60.0, args.method)
+            if args.traj == 'fig8':
+                run_one(items[args.idx][0], items[args.idx][1], fig8, "fig8",60.0, args.method)
+            elif args.traj == 'circle':
+                run_one(items[args.idx][0], items[args.idx][1], circle, "circle",60.0, args.method)
+            elif args.traj == 'ellipse':
+                run_one(items[args.idx][0], items[args.idx][1], ellipse, "ellipse",60.0, args.method) 
         return
 
     elif args.mode is not None and args.idx is None:
@@ -755,19 +820,18 @@ def main():
             for i, (p, c) in enumerate(train_list):
                 print(f"[{i+1}/{len(train_list)}] 运行训练风况: {p['tag']} -> {c}")
                 run_one(p, c, test3_random_spline_trajectory(), "random", 60.0, args.method)
-        else:  # test mode
+        else:
+            items = test_list
             print(f"运行所有测试风况 ({len(test_list)} 个) 使用 {args.method} 方法:")
             for i, (p, c) in enumerate(test_list):
                 print(f"[{i+1}/{len(test_list)}] 运行测试风况: {p['tag']} -> {c}")
-                run_one(p, c, test2, "fig8", 60.0, args.method)
+                if args.traj == 'fig8':
+                    run_one(items[i][0], items[i][1], fig8, "fig8", 60.0, args.method)
+                elif args.traj == 'circle':
+                    run_one(items[i][0], items[i][1], circle, "circle", 60.0, args.method)
+                elif args.traj == 'ellipse':
+                    run_one(items[i][0], items[i][1], ellipse, "ellipse", 60.0, args.method)
         return
-
-    # 默认：先全量训练，再全量测试（每组都会复位）
-    print(f"未指定参数，默认批量运行全部训练与测试风况 使用 {args.method} 方法")
-    for p,c in train_list:
-        run_one(p, c, test3_random_spline_trajectory(), "random", 60.0, args.method)  # 训练每组1分钟
-    for p,c in test_list:
-        run_one(p, c, test2, "fig8", 60.0, args.method)  # 测试每组1分钟
 
 if __name__ == "__main__":
     try:

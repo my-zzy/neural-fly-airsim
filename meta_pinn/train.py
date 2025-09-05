@@ -4,23 +4,6 @@ from .utils import StandardScaler, linear_warm, save_checkpoint
 from .dataio import prepare_dataloader, convert_dataset_to_numpy, build_condition_vector_for_dataset
 from .adapt import backup_task_embeddings, restore_task_embeddings, pick_support_indices, adapt_task_embedding
 
-# def _fit_scalers(Data, options, model, device):
-#     X_all, F_all, C_all_list, Ns = [], [], [], []
-#     cond_dim = options.get('cond_dim', 1)
-#     for i in range(len(Data)):
-#         Xi,Vi,Ai,Alpi,Fi,Fni = convert_dataset_to_numpy(Data[i], options)
-#         X_all.append(Xi); F_all.append(Fi); Ns.append(len(Xi))
-#         C_all_list.append(build_condition_vector_for_dataset(Data[i], cond_dim))
-#     X_all = np.vstack(X_all); F_all = np.vstack(F_all)
-#     x_scaler = StandardScaler().fit(X_all); f_scaler = StandardScaler().fit(F_all)
-#     C_all = np.vstack(C_all_list); 
-#     c_scaler = StandardScaler().fit(C_all)
-
-#     model.set_force_scaler(torch.tensor(f_scaler.mean, dtype=torch.float32, device=device),
-#                            torch.tensor(f_scaler.std,  dtype=torch.float32, device=device))
-#     model.set_condition_scaler(torch.tensor(c_scaler.mean, dtype=torch.float32, device=device),
-#                                torch.tensor(c_scaler.std,  dtype=torch.float32, device=device))
-#     return x_scaler, Ns
 def _fit_scalers(Data, options, model, device):
     import numpy as np
     X_all, F_all, C_all_list, Ns = [], [], [], []

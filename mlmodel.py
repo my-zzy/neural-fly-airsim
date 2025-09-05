@@ -1,6 +1,6 @@
 import collections
 import os
-
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -198,3 +198,77 @@ def error_statistics(data_input: np.ndarray, data_output: np.ndarray, phi_net, h
         error_3 = criterion(torch.from_numpy(data_output), torch.from_numpy(prediction)).item()
         
         return error_1, error_2, error_3
+
+# new
+# ====== 新增：计时/批量小工具 ======
+def _cuda_sync_if_needed():
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+@torch.no_grad()
+def _batched_phi_mm(phi_net, X_t: torch.Tensor, a: torch.Tensor, batch: int) -> torch.Tensor:
+    """
+    按 batch 计算 phi(X) @ a，避免一次性占用过多显存/内存。
+    X_t: [N, dim_x], a: [dim_a, dim_y]，返回 [N, dim_y]
+    """
+    outs = []
+    N = X_t.shape[0]
+    for s in range(0, N, batch):
+        e = min(s + batch, N)
+        Phi = phi_net(X_t[s:e])          # [B, dim_a]
+        outs.append(torch.mm(Phi, a))    # [B, dim_y]
+    return torch.cat(outs, dim=0)
+
+import time, numpy as np, torch, torch.nn as nn
+
+def _cuda_sync():
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+def error_statistics_with_time(data_input: np.ndarray,
+                               data_output: np.ndarray,
+                               phi_net, h_net, options):
+    """
+    返回: (error_before, error_mean, error_after, t_after_total_ms, t_after_per_sample_ms)
+    说明:
+      - t_after_* 含最小二乘拟合 + φ 前向 + 线性头
+      - 采用 torch.cholesky_solve 拟合 a
+    """
+    criterion = nn.MSELoss()
+    device = next(phi_net.parameters()).device if hasattr(phi_net, "parameters") else torch.device("cpu")
+    phi_net.eval()
+
+    lam = float(options.get("lam", 0.0))
+    X_t = torch.from_numpy(data_input).to(device)
+    Y_t = torch.from_numpy(data_output).to(device)
+    N   = X_t.shape[0]
+
+    # ---------- Before ----------
+    y_before = torch.zeros_like(Y_t)
+    error_1 = criterion(Y_t, y_before).item()
+
+    # ---------- Mean ----------
+    y_mean = Y_t.mean(dim=0, keepdim=True).expand_as(Y_t)
+    error_2 = criterion(Y_t, y_mean).item()
+
+    # ---------- After (含拟合 + 验证前向) ----------
+    _cuda_sync()
+    t0 = time.perf_counter()
+    with torch.no_grad():
+        Phi   = phi_net(X_t)                         # [N, dim_a]
+        Phi_T = Phi.transpose(0, 1)
+        dim_a = Phi.shape[1]
+        I     = torch.eye(dim_a, device=Phi.device, dtype=Phi.dtype)
+        A = Phi_T @ Phi + lam * I
+        B = Phi_T @ Y_t
+        L = torch.linalg.cholesky(A)
+        a = torch.cholesky_solve(B, L)               # [dim_a, dim_y]
+        y_after = Phi @ a
+    _cuda_sync()
+    elapsed = time.perf_counter() - t0
+
+    error_3 = criterion(Y_t, y_after).item()
+    t_after_total_ms = 1000.0 * elapsed
+    t_after_per_sample_ms = t_after_total_ms / max(1, N)
+
+    return error_1, error_2, error_3, t_after_total_ms, t_after_per_sample_ms

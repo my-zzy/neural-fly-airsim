@@ -1,0 +1,5 @@
+num_tasks: 4
+total_samples: 10048
+overall_avg_time_ms_per_sample: 0.0022525975318470775
+overall_weighted_MSE_elementwise: 27.75648839978181
+total_time_s: 0.022634099999999435

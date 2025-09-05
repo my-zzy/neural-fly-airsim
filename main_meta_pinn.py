@@ -52,7 +52,7 @@ def main():
     except Exception:
         pass
 
-    save_dir = 'saved_models/meta_pinn_refactor'; os.makedirs(save_dir, exist_ok=True)
+    save_dir = 'saved_models/meta_pinn'; os.makedirs(save_dir, exist_ok=True)
     hist = train_meta_pinn_multitask(model, Data, TestData, DEFAULT_OPTIONS['UAV_mass'], DEFAULT_OPTIONS, save_path=save_dir)
     torch.save(model.state_dict(), os.path.join(save_dir, 'meta_pinn_last.pth'))
     np.save(os.path.join(save_dir, 'history_train_total.npy'), np.array(hist['train_total']))
